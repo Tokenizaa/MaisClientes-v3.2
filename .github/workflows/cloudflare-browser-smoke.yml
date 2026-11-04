@@ -1,0 +1,80 @@
+name: Cloudflare Browser Run smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cloudflare-browser-service
+    paths:
+      - .github/workflows/cloudflare-browser-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-run-smoke:
+    name: Validate Cloudflare credentials and browser rendering
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate required secrets
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
+          echo "Both required secrets are present."
+
+      - name: Execute real Browser Run request
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/browser-run/content`;
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ url: "https://example.com/" }),
+            signal: AbortSignal.timeout(120000),
+          });
+
+          const raw = await response.text();
+          let payload;
+          try {
+            payload = JSON.parse(raw);
+          } catch {
+            throw new Error(`Cloudflare returned non-JSON response (HTTP ${response.status}).`);
+          }
+
+          if (!response.ok || payload.success !== true) {
+            const errors = Array.isArray(payload.errors)
+              ? payload.errors.map((item) => item.message || item.code).join("; ")
+              : "No Cloudflare error details supplied";
+            throw new Error(`Browser Run request failed (HTTP ${response.status}): ${errors}`);
+          }
+
+          const result = payload.result;
+          const html = typeof result === "string"
+            ? result
+            : typeof result?.content === "string"
+              ? result.content
+              : typeof result?.html === "string"
+                ? result.html
+                : JSON.stringify(result ?? "");
+
+          if (!html || !/Example Domain/i.test(html)) {
+            throw new Error("Browser Run responded successfully, but the rendered page content did not contain the expected Example Domain marker.");
+          }
+
+          console.log("PASS: Cloudflare credentials authenticated.");
+          console.log("PASS: Browser Run rendered https://example.com/.");
+          console.log(`PASS: Received rendered content (${html.length} characters).`);
+          NODE
