@@ -1,0 +1,23 @@
+name = "nettos-browser-service"
+main = "src/index.ts"
+compatibility_date = "2026-11-04"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "SESSION_PROXY"
+class_name = "BrowserSessionProxy"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BrowserSessionProxy"]
+
+[vars]
+BROWSER_RUN_API_BASE = "https://api.cloudflare.com/client/v4"
+DEFAULT_SESSION_TTL_MS = "600000"
+MAX_SESSION_TTL_MS = "1200000"
+
+# Configure secrets before deployment:
+# wrangler secret put CLOUDFLARE_ACCOUNT_ID
+# wrangler secret put CLOUDFLARE_API_TOKEN
+# wrangler secret put BROWSER_SERVICE_API_KEYS
