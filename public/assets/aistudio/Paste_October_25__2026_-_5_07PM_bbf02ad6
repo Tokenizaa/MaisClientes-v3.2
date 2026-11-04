@@ -1,0 +1,1264 @@
+# PROMPT MESTRE — DESENVOLVER UMA PLATAFORMA INDEPENDENTE DE RASPAGEM E ENRIQUECIMENTO DE DADOS COMERCIAIS
+
+## 1. PAPEL E OBJETIVO
+
+Atue como arquiteto de software, engenheiro full-stack e especialista em coleta automatizada de dados, navegadores, extração de DOM, processamento de dados, bancos de dados e exportação de bases comerciais.
+
+Desenvolva uma aplicação web completa, funcional e pronta para implantação, destinada à raspagem, ao enriquecimento, à organização, à análise e à exportação de dados comerciais.
+
+A plataforma deve capturar o máximo possível de informações verificáveis sobre estabelecimentos, começando pelo Google Maps e continuando pelos sites oficiais e outras fontes públicas acessíveis.
+
+**O objetivo principal é criar uma base comercial abrangente, preservar os dados coletados e permitir sua exportação em formatos universais, especialmente CSV, para utilização independente em qualquer outro projeto.**
+
+A aplicação NÃO deve depender de integração direta com outros projetos do usuário. O arquivo exportado será o contrato de interoperabilidade.
+
+Não entregue apenas um protótipo visual, um dashboard com dados fictícios, uma documentação ou um relatório de auditoria. Implemente a aplicação funcional, incluindo frontend, backend, banco de dados, motor de coleta, processamento, armazenamento, exportação, tratamento de erros e instruções de implantação.
+
+---
+
+## 2. REPOSITÓRIO OPEN SOURCE DE REFERÊNCIA
+
+Utilize como ponto de partida técnico o projeto:
+
+https://github.com/gosom/google-maps-scraper
+
+Analise o repositório antes de implementar a raspagem.
+
+Verifique:
+- Estrutura e arquitetura.
+- Linguagem e dependências.
+- Licença e condições de reutilização.
+- Métodos de pesquisa e coleta.
+- Campos realmente extraídos.
+- Tratamento de paginação e resultados.
+- Extração de telefones, sites, avaliações e demais informações.
+- Persistência e formatos de exportação.
+- Tratamento de erros, limites, bloqueios e alterações nas páginas.
+- Possibilidades de execução automatizada e integração com a aplicação.
+
+Clone e incorpore o projeto como componente do sistema quando tecnicamente viável e compatível com a licença.
+
+Não presuma que todos os campos desejados já estejam implementados. Compare a capacidade real do repositório com o catálogo definido neste prompt.
+
+Se a integração direta for incompatível com a arquitetura, desenvolva um adaptador ou serviço de coleta equivalente, reaproveitando o máximo possível do código autorizado.
+
+Referências complementares:
+
+- https://github.com/FAAQJAVED/Google-Maps-Business-Scraper
+- https://github.com/Mahanaicoach/google-maps-scraper-kit
+- https://github.com/firecrawl/firecrawl
+- Documentação Firecrawl: https://docs.firecrawl.dev/
+
+Esses projetos são referências técnicas, não dependências obrigatórias. Avalie sua utilidade real antes de incorporar qualquer componente.
+
+Não copie indiscriminadamente projetos inteiros. Preserve as licenças, registre as origens e mantenha as dependências necessárias documentadas.
+
+---
+
+## 3. PRINCÍPIO FUNDAMENTAL: COLETAR PRIMEIRO, AVALIAR DEPOIS
+
+Não limite a coleta a um conjunto pequeno e fixo de campos.
+
+O sistema deverá:
+- Capturar todos os campos disponíveis que sejam relevantes e tecnicamente acessíveis.
+- Permitir acrescentar novos campos sem reescrever toda a aplicação.
+- Registrar campos desconhecidos ou não previstos quando houver valor informativo.
+- Preservar a diferença entre dados originais, dados normalizados e dados derivados.
+- Registrar a origem individual dos dados.
+- Registrar falhas de extração e campos não encontrados.
+- Permitir reprocessamento e enriquecimento posterior.
+- Não descartar informações somente porque ainda não existe uma utilização definida.
+- Não inventar, estimar silenciosamente ou preencher dados ausentes com valores genéricos.
+
+O catálogo a seguir é uma especificação abrangente, não um limite máximo.
+
+A disponibilidade de cada campo dependerá da fonte, das permissões de acesso, da página consultada e do método de extração. O sistema deverá indicar o que foi obtido, de onde veio e o que não foi encontrado.
+
+---
+
+## 4. CATÁLOGO MESTRE DE CAMPOS
+
+Implemente os grupos de campos a seguir. Todos os campos devem ter identificadores estáveis, tipos apropriados, origem rastreável e possibilidade de expansão.
+
+### 4.1. Identificação do estabelecimento
+
+- ID interno único.
+- Nome comercial.
+- Nome original da fonte.
+- Nome normalizado.
+- Razão social, quando disponível em fonte apropriada.
+- Nomes alternativos.
+- Nome anterior.
+- Nome de exibição.
+- Categoria principal.
+- Categorias secundárias.
+- Segmento comercial.
+- Subsegmento.
+- Tipo de estabelecimento.
+- Identificador do Google Place, quando disponível.
+- CID ou identificador equivalente, quando acessível.
+- URL original da listagem.
+- URL canônica.
+- URL final após redirecionamentos.
+- Status da listagem.
+- Situação do estabelecimento conforme a fonte.
+- Indicador de encerramento permanente ou temporário, quando informado.
+- Data de abertura, quando publicada.
+- Data de fundação, quando publicada.
+- Data de criação do registro.
+- Data da última atualização.
+- Identificadores de fontes alternativas.
+- Relações com outras unidades.
+- Identificadores de duplicidade.
+- Confiança da identificação.
+
+### 4.2. Endereço e localização geográfica
+
+- Endereço completo original.
+- Endereço normalizado.
+- Logradouro.
+- Número.
+- Complemento.
+- Bairro.
+- Distrito.
+- Cidade.
+- Município.
+- Estado.
+- Sigla do estado.
+- País.
+- Código postal ou CEP.
+- Código de país.
+- Coordenadas de latitude e longitude.
+- Plus Code, quando disponível.
+- Região administrativa.
+- Área de atendimento.
+- Regiões atendidas.
+- Endereços alternativos publicados.
+- Endereço de correspondência, quando público.
+- URL de localização.
+- URL de direções.
+- Fuso horário.
+- Precisão geográfica.
+- Fonte da localização.
+- Data da última verificação geográfica.
+
+### 4.3. Contatos comerciais
+
+- Telefone principal.
+- Telefones secundários.
+- Telefone original.
+- Telefone normalizado.
+- Código internacional.
+- Tipo de telefone.
+- Ramal.
+- Número de WhatsApp publicado.
+- Link direto para WhatsApp.
+- E-mail principal publicado.
+- E-mails secundários publicados.
+- E-mail comercial.
+- E-mail de atendimento.
+- E-mail de agendamento.
+- E-mail institucional.
+- Formulário de contato.
+- URL da página de contato.
+- URL da página de atendimento.
+- URL de agendamento.
+- URL de orçamento.
+- URL de reservas.
+- Contato público de vendas.
+- Contato público de suporte.
+- Nome e função de contato profissional, quando publicados para finalidade comercial.
+- Fonte de cada contato.
+- Data da coleta.
+- Método de validação.
+- Status da validação.
+- Confiança do dado.
+
+Não invente endereços de e-mail nem gere combinações especulativas de nomes e domínios.
+
+### 4.4. Site e presença digital
+
+- Site oficial.
+- URL inicial.
+- URL canônica.
+- URL final.
+- Protocolo.
+- Domínio.
+- Subdomínio.
+- Status HTTP.
+- Título da página.
+- Meta description.
+- Meta keywords, se existentes.
+- Idioma.
+- Tags de idioma alternativo.
+- Open Graph title.
+- Open Graph description.
+- Open Graph image.
+- Open Graph URL.
+- Twitter Card metadata.
+- Favicon.
+- Logo.
+- Imagens institucionais.
+- Sitemap.
+- Robots.txt.
+- URLs internas descobertas.
+- Páginas de serviços.
+- Páginas de produtos.
+- Página de preços.
+- Página de equipe.
+- Página institucional.
+- Página de contato.
+- Página de localização.
+- Página de agendamento.
+- Página de reservas.
+- Página de perguntas frequentes.
+- Página de políticas.
+- Página de privacidade.
+- Página de termos.
+- Página de acessibilidade.
+- Página de carreiras.
+- Página de avaliações.
+- Página de blog.
+- Data de publicação e modificação, quando disponíveis.
+- Links internos e externos.
+- Redirecionamentos.
+- Certificado HTTPS observado.
+- Tecnologias detectadas.
+- CMS detectado.
+- Framework detectado.
+- Scripts e bibliotecas identificados.
+- Metadados estruturados.
+- Dados Schema.org.
+- JSON-LD.
+- Microdata.
+- RDFa.
+- Dados de organização.
+- Dados de estabelecimento local.
+- Dados de produtos e serviços.
+- Dados de ofertas.
+- Dados de eventos.
+- Dados de horários.
+- Dados de endereço e contato.
+- Indicadores técnicos de acessibilidade observados.
+- Problemas técnicos identificados.
+- Data de verificação do site.
+
+Não declare tecnologias, acessibilidade ou segurança como confirmadas quando forem apenas inferidas por sinais técnicos.
+
+### 4.5. Redes sociais e perfis públicos
+
+- Facebook.
+- Instagram.
+- LinkedIn.
+- TikTok.
+- YouTube.
+- Pinterest.
+- X.
+- Threads.
+- Perfil comercial no Google.
+- Diretórios empresariais.
+- Plataformas de avaliação.
+- Marketplaces.
+- Plataformas de agendamento.
+- Aplicativos comerciais.
+- Perfil público de profissionais.
+- URLs dos perfis.
+- Nome de usuário público.
+- Nome exibido.
+- Descrição pública.
+- Quantidade pública de seguidores, quando acessível.
+- Quantidade pública de publicações, quando acessível.
+- Data da verificação.
+- Fonte de descoberta.
+- Status de acesso.
+- Confiança de associação ao estabelecimento.
+
+Não contorne controles de acesso nem tente acessar dados privados.
+
+### 4.6. Avaliações e reputação
+
+Dados agregados:
+- Nota média.
+- Escala de avaliação.
+- Quantidade total de avaliações.
+- Distribuição por estrelas, quando disponível.
+- Quantidade de avaliações por período, se publicada.
+- Data da última avaliação observada.
+- Data da avaliação mais antiga observada.
+- Tendência calculada a partir dos registros disponíveis.
+- Fonte da avaliação.
+- Data da coleta.
+
+Dados individuais, quando acessíveis e permitidos:
+- Identificador da avaliação.
+- Identificador do estabelecimento.
+- Nota.
+- Texto original.
+- Texto normalizado.
+- Data da publicação.
+- Data da atualização.
+- Nome público do autor, quando necessário e permitido.
+- URL pública da avaliação.
+- Resposta do proprietário.
+- Data da resposta.
+- Imagens associadas.
+- Idioma.
+- Fonte.
+- Indicador de conteúdo indisponível.
+- Status de extração.
+
+Não coletar informações privadas nem construir perfis pessoais desnecessários. Não apresentar uma amostra parcial como se representasse o conjunto integral de avaliações.
+
+### 4.7. Fotografias, imagens e identidade visual
+
+- URL da imagem.
+- URL original.
+- URL final.
+- URL da miniatura.
+- URL da imagem em alta resolução, quando acessível.
+- Tipo de imagem.
+- Logo.
+- Favicon.
+- Fachada.
+- Interior.
+- Equipamentos.
+- Produtos.
+- Serviços.
+- Equipe institucional.
+- Imagens promocionais.
+- Imagens de avaliações, quando permitido.
+- Texto alternativo.
+- Legenda.
+- Título.
+- Dimensões.
+- Formato.
+- Tamanho do arquivo, quando conhecido.
+- Origem.
+- Página de origem.
+- Data de coleta.
+- Atribuição e licença, quando identificáveis.
+- Hash de deduplicação.
+- Cores dominantes.
+- Fontes tipográficas detectadas.
+- Identificadores de arquivos armazenados.
+
+Não presuma que uma URL pública autoriza a redistribuição da imagem. Preserve a origem e os metadados de uso disponíveis.
+
+### 4.8. Horários de funcionamento
+
+- Horário semanal de cada dia.
+- Horário de abertura.
+- Horário de fechamento.
+- Múltiplos intervalos no mesmo dia.
+- Dias fechados.
+- Atendimento com agendamento.
+- Atendimento contínuo.
+- Horários especiais.
+- Feriados.
+- Fechamentos temporários publicados.
+- Horários sazonais.
+- Horário de funcionamento do site, se informado.
+- Horários de serviços específicos.
+- Fuso horário.
+- Fonte do horário.
+- Data de verificação.
+- Divergências entre fontes.
+- Status de extração.
+
+Não assumir que horários ausentes significam estabelecimento fechado.
+
+### 4.9. Serviços, produtos e ofertas
+
+Para cada serviço ou produto:
+- Identificador.
+- Nome.
+- Nome original.
+- Categoria.
+- Subcategoria.
+- Descrição.
+- Preço.
+- Moeda.
+- Faixa de preço.
+- Unidade de cobrança.
+- Duração.
+- Variantes.
+- Pacotes.
+- Disponibilidade publicada.
+- URL do serviço.
+- URL do produto.
+- URL de agendamento.
+- URL de compra.
+- Imagem.
+- SKU, quando publicado.
+- Marca.
+- Promoções.
+- Ofertas.
+- Descontos.
+- Condições publicadas.
+- Menus e catálogos.
+- Serviços recorrentes.
+- Modalidades de atendimento.
+- Fonte.
+- Data de coleta.
+- Status de validação.
+
+Separar preço observado, faixa de preço e preço estimado. Não calcular um preço inexistente como se fosse real.
+
+### 4.10. Características e comodidades
+
+- Formas de pagamento publicadas.
+- Cartões aceitos, quando informados.
+- Pagamentos digitais.
+- Estacionamento.
+- Acessibilidade.
+- Acesso para cadeira de rodas.
+- Wi-Fi.
+- Ar-condicionado.
+- Banheiros.
+- Espaços de espera.
+- Atendimento com hora marcada.
+- Atendimento sem agendamento.
+- Atendimento presencial.
+- Atendimento remoto.
+- Entrega.
+- Retirada.
+- Atendimento domiciliar.
+- Atendimento empresarial.
+- Idiomas de atendimento.
+- Estrutura física.
+- Comodidades para clientes.
+- Regras e restrições publicadas.
+- Fonte de cada atributo.
+- Data da coleta.
+
+Registrar como desconhecido aquilo que não foi informado.
+
+### 4.11. Indicadores públicos de popularidade
+
+- Horários de maior movimento, se disponibilizados pela fonte.
+- Indicadores públicos de movimento.
+- Tempo de espera, se efetivamente publicado.
+- Frequência de avaliações.
+- Evolução da nota.
+- Evolução do volume de avaliações.
+- Frequência de atualização da presença digital.
+- Indicadores calculados a partir de dados coletados.
+- Período de observação.
+- Método de cálculo.
+- Fonte.
+
+Não transformar indicadores relativos em estimativas fictícias de faturamento, quantidade de clientes ou vendas.
+
+### 4.12. Dados empresariais e institucionais externos
+
+Quando disponíveis em fontes públicas apropriadas:
+- CNPJ.
+- Razão social.
+- Nome fantasia.
+- Situação cadastral.
+- Data de abertura.
+- CNAE principal.
+- CNAEs secundários.
+- Natureza jurídica.
+- Endereço cadastral.
+- Matriz ou filial.
+- Identificadores públicos da empresa.
+- Informações institucionais.
+- Site oficial.
+- Fonte de consulta.
+- Data de consulta.
+- Situação de validação.
+
+Esses campos devem ser identificados como dados de enriquecimento externo, não como informações necessariamente obtidas do Google Maps.
+
+### 4.13. Equipe e profissionais publicamente apresentados
+
+- Nome público.
+- Cargo.
+- Especialidade.
+- Descrição profissional.
+- Página institucional.
+- Perfil profissional público.
+- Serviços associados.
+- Horários de atendimento publicados.
+- Foto institucional.
+- Fonte.
+- Data de coleta.
+
+Coletar apenas informações profissionais relevantes, sem ampliar a coleta para informações pessoais sensíveis.
+
+### 4.14. Perguntas e respostas públicas
+
+- Identificador da pergunta.
+- Texto da pergunta.
+- Data de publicação, quando disponível.
+- Resposta.
+- Data da resposta.
+- Identificação pública do respondente, quando permitida.
+- Fonte.
+- URL de origem.
+- Status da extração.
+
+### 4.15. Filiais e relações comerciais
+
+- Identificador da organização.
+- Identificador da unidade.
+- Nome da rede.
+- Nome da filial.
+- Endereço da unidade.
+- Site associado.
+- Telefone associado.
+- Relação com a matriz.
+- Outras unidades identificadas.
+- Fonte da relação.
+- Confiança da correspondência.
+
+Não associar estabelecimentos apenas por semelhança de nome sem registrar a incerteza.
+
+### 4.16. Qualificação e gestão de leads
+
+Criar campos operacionais independentes dos dados de origem:
+- Segmento.
+- Subsegmento.
+- Campanha.
+- Lista de origem.
+- Região de prospecção.
+- Data de inclusão.
+- Status do lead.
+- Pontuação de qualidade dos dados.
+- Pontuação de potencial comercial.
+- Critérios da pontuação.
+- Evidências que sustentam a pontuação.
+- Site ausente.
+- Site inacessível.
+- Presença digital incompleta.
+- Contato comercial ausente.
+- Informações desatualizadas.
+- Oportunidades de melhoria detectadas.
+- Prioridade.
+- Próxima ação.
+- Status de contato.
+- Data da última tentativa.
+- Observações comerciais.
+- Status de supressão de contato.
+- Restrições de utilização.
+- Base e finalidade documentadas para o tratamento dos dados, quando aplicável.
+
+Separar fatos observados de avaliações automáticas e hipóteses comerciais.
+
+### 4.17. Rastreabilidade da raspagem e do DOM
+
+Este grupo é central para a confiabilidade da plataforma.
+
+Para cada execução:
+- ID da execução.
+- ID do estabelecimento.
+- URL solicitada.
+- URL final.
+- Fonte.
+- Tipo de página.
+- Data e hora.
+- Status HTTP.
+- Método de coleta.
+- Ferramenta utilizada.
+- Versão da ferramenta.
+- Versão do extrator.
+- Versão do esquema.
+- Tempo de execução.
+- Status da coleta.
+- Mensagem de erro.
+- Tentativas realizadas.
+- Contagem de campos encontrados.
+- Contagem de campos ausentes.
+- Contagem de campos validados.
+- Contagem de campos com erro.
+- Indicador de bloqueio.
+- Indicador de página dinâmica.
+- Evidência de extração.
+- Data da última validação.
+
+Para cada campo extraído:
+- Nome do campo.
+- Valor original.
+- Valor normalizado.
+- Tipo de dado.
+- Fonte do valor.
+- URL de origem.
+- Tipo de página.
+- Método de extração.
+- Seletor CSS observado.
+- XPath, se utilizado.
+- Atributo HTML.
+- Valor do atributo.
+- `aria-label`.
+- `href`.
+- `src`.
+- `alt`.
+- `title`.
+- `content`.
+- `itemprop`.
+- `itemtype`.
+- `data-*`.
+- `role`.
+- `jsaction`.
+- `jslog`.
+- Texto visível associado.
+- Seletor alternativo.
+- Estratégia de fallback.
+- Quantidade de elementos encontrados.
+- Quantidade de elementos correspondentes.
+- Resultado da validação.
+- Confiança.
+- Data da última verificação.
+- Status do seletor.
+- Mensagem de erro.
+- Hash ou referência da evidência.
+- Versão do extrator.
+
+Não assumir que esses atributos existem em todas as páginas. Descobrir os atributos presentes e registrar somente o que efetivamente foi observado.
+
+Implementar um mecanismo de descoberta e validação de seletores, com:
+1. Inspeção do HTML ou DOM efetivamente acessível.
+2. Identificação de elementos e atributos candidatos.
+3. Associação de elementos aos campos esperados.
+4. Validação do tipo e do conteúdo.
+5. Registro de seletor, atributo e evidência.
+6. Tentativas alternativas quando um seletor falhar.
+7. Detecção de alterações na estrutura.
+8. Registro de seletores obsoletos.
+9. Reprocessamento controlado.
+10. Exibição das falhas no painel de execução.
+
+O Firecrawl poderá ser usado para inspeção, extração, mapeamento e descoberta de páginas. Para interações dinâmicas não suportadas, avaliar um navegador automatizado ou outro método compatível com a fonte. Não afirmar que o Firecrawl, sozinho, consegue acessar todo o DOM ou todas as informações dinâmicas.
+
+### 4.18. Deduplicação, integridade e histórico
+
+- ID estável do estabelecimento.
+- Chave de deduplicação.
+- Place ID, quando disponível.
+- Domínio normalizado.
+- Telefone normalizado.
+- Endereço normalizado.
+- Hash de registro.
+- IDs de registros potencialmente duplicados.
+- Motivo da correspondência.
+- Confiança da deduplicação.
+- Registro original preservado.
+- Histórico de alterações.
+- Valores anteriores.
+- Valores novos.
+- Data da alteração.
+- Origem da alteração.
+- Identificador da execução.
+- Status da resolução de duplicidades.
+- Data da última atualização.
+- Integridade da exportação.
+
+Não eliminar registros apenas porque possuem nomes semelhantes. Usar múltiplos sinais e permitir revisão dos casos ambíguos.
+
+### 4.19. Campos extensíveis
+
+A arquitetura deve aceitar campos adicionais sem exigir uma migração de banco a cada novo atributo.
+
+Cada campo configurável deverá poder definir:
+- Nome estável.
+- Nome de exibição.
+- Descrição.
+- Categoria.
+- Tipo de dado.
+- Fonte esperada.
+- Método de extração.
+- Regra de validação.
+- Seletor preferencial.
+- Atributo preferencial.
+- Seletor alternativo.
+- Status de implementação.
+- Status de validação.
+- Data da última verificação.
+
+Permitir registrar campos desconhecidos como atributos adicionais, preservando o nome original, o valor, a fonte e a estrutura quando aplicável.
+
+### 4.20. Campos de exportação e interoperabilidade
+
+Cada exportação deverá registrar:
+- ID da exportação.
+- Nome do arquivo.
+- Formato.
+- Data de geração.
+- Filtros utilizados.
+- Quantidade de registros.
+- Quantidade de colunas.
+- Versão do esquema.
+- Campos incluídos.
+- Campos omitidos.
+- Erros e advertências.
+- Hash do arquivo, quando viável.
+- Status da geração.
+- Manifesto dos arquivos relacionados.
+
+---
+
+## 5. ESTRATÉGIA DE COLETA
+
+Implemente um pipeline configurável.
+
+### Etapa A — Descoberta
+
+Permitir pesquisas por:
+- Segmento comercial.
+- Categoria.
+- Palavra-chave.
+- Cidade.
+- Estado.
+- País.
+- Bairro.
+- CEP.
+- Região.
+- Coordenadas e raio, quando suportados.
+- Conjunto de termos de busca.
+- Volume desejado de resultados.
+- Fontes habilitadas.
+- Profundidade de coleta.
+
+### Etapa B — Coleta inicial
+
+Obter os dados disponibilizados pela fonte principal e registrar cada resultado individualmente.
+
+Não pressupor que o número solicitado de resultados será efetivamente encontrado. Exibir a quantidade solicitada, encontrada, processada, duplicada, com erro e exportável.
+
+### Etapa C — Enriquecimento
+
+Quando houver site oficial:
+- Identificar páginas relevantes.
+- Extrair metadados.
+- Detectar links de contato e serviços.
+- Examinar dados estruturados.
+- Descobrir imagens e ativos.
+- Identificar horários, serviços e preços publicados.
+- Registrar a origem individual dos campos.
+- Detectar divergências entre fontes.
+- Atualizar o registro sem destruir o valor anterior.
+
+Permitir limitar a profundidade de navegação, o tempo de execução e a quantidade de páginas por estabelecimento.
+
+### Etapa D — Normalização
+
+Normalizar nomes, endereços, telefones, URLs, datas e categorias sem eliminar os valores originais.
+
+### Etapa E — Deduplicação
+
+Detectar duplicidades prováveis, registrar evidências e manter a possibilidade de revisão.
+
+### Etapa F — Persistência
+
+Salvar os registros e o estado da execução progressivamente, para que uma falha não obrigue a reiniciar toda a pesquisa.
+
+### Etapa G — Exportação
+
+Disponibilizar os resultados completos, inclusive quando algumas etapas de enriquecimento falharem. Informar claramente quais etapas foram concluídas e quais permanecem pendentes.
+
+---
+
+## 6. BANCO DE DADOS E MODELO DE PERSISTÊNCIA
+
+Crie um modelo de dados que evite uma única tabela gigante e permita relacionar registros.
+
+Estrutura lógica recomendada:
+- `businesses`: cadastro principal.
+- `business_identifiers`: identificadores externos.
+- `business_addresses`: endereços e localizações.
+- `business_contacts`: telefones, e-mails e contatos.
+- `business_websites`: sites e metadados.
+- `business_social_profiles`: perfis públicos.
+- `business_reviews`: avaliações.
+- `business_review_responses`: respostas.
+- `business_images`: fotografias e ativos.
+- `business_hours`: horários.
+- `business_services`: serviços.
+- `business_products`: produtos.
+- `business_attributes`: comodidades e atributos.
+- `business_popularity_metrics`: indicadores públicos.
+- `business_legal_records`: dados empresariais externos.
+- `business_professionals`: profissionais publicamente apresentados.
+- `business_questions_answers`: perguntas e respostas.
+- `business_relationships`: filiais e relações.
+- `lead_qualification`: qualificação comercial.
+- `scrape_jobs`: pesquisas e execuções.
+- `scrape_job_items`: estado por estabelecimento.
+- `scrape_sources`: fontes consultadas.
+- `scrape_field_evidence`: evidências por campo.
+- `scrape_selector_registry`: seletores e validações.
+- `scrape_errors`: falhas e tentativas.
+- `business_change_history`: histórico.
+- `export_jobs`: histórico de exportações.
+- `export_schemas`: versões dos esquemas.
+- `custom_field_definitions`: campos extensíveis.
+
+Os nomes são sugestões. Ajuste a estrutura ao motor de banco escolhido, preservando os conceitos e as relações.
+
+Não é obrigatório criar uma tabela separada para cada grupo se uma solução relacional mais simples resolver o problema sem perder rastreabilidade. Contudo, avaliações, fotos, serviços, horários e outros conjuntos repetíveis não devem ser armazenados de maneira que inviabilize sua exportação estruturada.
+
+Dados brutos extensos podem ser armazenados em JSON ou arquivos de evidência, com referências persistidas no banco. Evite guardar indefinidamente páginas completas se isso não for necessário ou permitido.
+
+---
+
+## 7. EXPORTAÇÃO UNIVERSAL
+
+A exportação é uma das funcionalidades mais importantes do produto.
+
+### Formato padrão: CSV UTF-8
+
+O CSV principal deverá ter uma linha por estabelecimento e cabeçalhos estáveis em `snake_case`.
+
+Exemplo ilustrativo:
+
+`business_id,business_name,category,phone,website,rating,review_count,source_url,collected_at`
+
+Cada linha deve conter os dados disponíveis para aquele estabelecimento.
+
+Requisitos:
+- Codificação UTF-8.
+- BOM opcional para compatibilidade com determinados programas de planilha.
+- Separador configurável: vírgula ou ponto e vírgula.
+- Escape correto de aspas, delimitadores e quebras de linha.
+- Datas em formato consistente.
+- Cabeçalhos estáveis.
+- Campos ausentes representados por valores vazios.
+- Proteção contra fórmulas maliciosas em células exportadas para planilhas.
+- Suporte a grandes volumes sem carregar toda a base na memória.
+- Relatório de erros de exportação.
+- Nome de arquivo previsível.
+- Seleção de colunas.
+- Exportação de todos os campos disponíveis.
+- Exportação de subconjuntos por filtro.
+- Exportação apenas de registros novos ou alterados, quando houver histórico suficiente.
+
+### Formatos complementares
+
+**JSON**
+- Preservar estruturas aninhadas.
+- Incluir arrays de contatos, serviços, horários, fotos e avaliações.
+- Preservar tipos de dados.
+- Incluir metadados de origem.
+
+**ZIP com múltiplos CSVs**
+- `businesses.csv`
+- `contacts.csv`
+- `addresses.csv`
+- `websites.csv`
+- `social_profiles.csv`
+- `reviews.csv`
+- `review_responses.csv`
+- `images.csv`
+- `business_hours.csv`
+- `services.csv`
+- `products.csv`
+- `attributes.csv`
+- `popularity_metrics.csv`
+- `legal_records.csv`
+- `professionals.csv`
+- `questions_answers.csv`
+- `relationships.csv`
+- `lead_qualification.csv`
+- `field_sources.csv`
+- `scrape_errors.csv`
+- `manifest.json`
+- `schema_dictionary.csv`
+
+Gerar somente os arquivos aplicáveis ou arquivos vazios com cabeçalhos, conforme a configuração de exportação. Todos os arquivos relacionados devem usar identificadores estáveis para permitir sua recomposição.
+
+O `manifest.json` deverá descrever a versão do esquema, os arquivos presentes, a quantidade de linhas, as datas e os filtros utilizados.
+
+**XLSX**
+- Opcional, para facilitar a análise manual em planilhas.
+- Não usar como formato primário para volumes elevados ou estruturas complexas.
+
+### Contrato de importação
+
+Documente o contrato de exportação para que qualquer outro projeto possa criar seu próprio importador sem depender da aplicação de raspagem.
+
+Incluir:
+- Dicionário de campos.
+- Tipos de dados.
+- Campos obrigatórios e opcionais.
+- Chaves de relacionamento.
+- Regras de normalização.
+- Versão do esquema.
+- Exemplos de arquivos.
+- Regras de deduplicação.
+- Tratamento de campos desconhecidos.
+- Regras para atualização de registros existentes.
+
+A exportação deverá ser utilizável sem credenciais, chamadas de API ou conexão com a plataforma de origem.
+
+---
+
+## 8. INTERFACE DA APLICAÇÃO
+
+Desenvolva uma interface profissional, simples e funcional, priorizando clareza e produtividade.
+
+Referências visuais: Linear, Stripe e interfaces administrativas modernas.
+
+Preferências:
+- Layout limpo.
+- Fundo claro.
+- Tipografia legível.
+- Hierarquia visual clara.
+- Verde como cor de destaque.
+- Poucos cartões.
+- Tabelas eficientes.
+- Formulários objetivos.
+- Sem gradientes decorativos.
+- Sem excesso de animações.
+- Sem dashboards congestionados.
+- Sem menus duplicados.
+- Sem elementos que aparentem funcionalidade sem realmente funcionar.
+
+### Páginas necessárias
+
+#### A. Visão geral
+Mostrar:
+- Total de estabelecimentos.
+- Registros novos.
+- Registros enriquecidos.
+- Execuções em andamento.
+- Execuções concluídas.
+- Execuções com erro.
+- Campos coletados.
+- Cobertura por campo.
+- Taxa de duplicidade.
+- Últimas exportações.
+- Estado dos coletores.
+
+Não apresentar dados fictícios como dados reais.
+
+#### B. Nova pesquisa
+Formulário para definir:
+- Nome da pesquisa.
+- Termos.
+- Segmentos.
+- Localização.
+- Quantidade desejada.
+- Fontes.
+- Profundidade.
+- Enriquecimento.
+- Campos prioritários, sem limitar o restante da coleta.
+- Configurações de execução.
+
+#### C. Execuções
+Tabela com:
+- Nome.
+- Data.
+- Status.
+- Resultados encontrados.
+- Registros processados.
+- Falhas.
+- Duração.
+- Ações para abrir, retomar, cancelar ou exportar, conforme o estado real.
+
+#### D. Base de estabelecimentos
+Tabela com:
+- Nome.
+- Categoria.
+- Localização.
+- Telefone.
+- Site.
+- Avaliação.
+- Status de enriquecimento.
+- Última coleta.
+- Quantidade de campos disponíveis.
+
+Permitir pesquisar, ordenar, filtrar, paginar e visualizar detalhes.
+
+#### E. Detalhes do estabelecimento
+Separar os dados por seções:
+- Identificação.
+- Endereço.
+- Contatos.
+- Site.
+- Redes sociais.
+- Avaliações.
+- Fotos.
+- Horários.
+- Serviços e produtos.
+- Atributos.
+- Dados institucionais.
+- Qualificação comercial.
+- Fontes e evidências.
+- Histórico.
+- Falhas de coleta.
+
+Para cada campo, quando aplicável, mostrar origem, data, valor original, valor normalizado e estado de validação.
+
+#### F. Explorador de campos
+Permitir:
+- Listar todos os campos existentes.
+- Consultar a descrição e o tipo.
+- Ver a cobertura de cada campo.
+- Ver exemplos reais de valores coletados.
+- Identificar fontes e métodos de extração.
+- Identificar campos ausentes.
+- Criar campos personalizados.
+- Exportar subconjuntos de campos.
+
+#### G. Explorador de seletores DOM
+Mostrar:
+- Fonte.
+- URL.
+- Tipo de página.
+- Campo associado.
+- Seletor.
+- Atributo.
+- Valor observado.
+- Método de extração.
+- Data da última validação.
+- Taxa de sucesso observada.
+- Status.
+- Erros.
+- Alternativas disponíveis.
+
+Permitir testar e revalidar seletores em páginas acessíveis, sem afirmar que o teste garante funcionamento universal.
+
+#### H. Exportações
+Permitir:
+- Selecionar pesquisa ou conjunto de registros.
+- Aplicar filtros.
+- Escolher formato.
+- Selecionar campos.
+- Escolher separador CSV.
+- Incluir ou excluir tabelas relacionadas.
+- Gerar arquivo.
+- Acompanhar o processamento.
+- Baixar o arquivo concluído.
+- Consultar histórico e erros.
+
+#### I. Configurações
+Gerenciar:
+- Chaves e credenciais no backend.
+- Fontes habilitadas.
+- Limites de execução.
+- Profundidade de navegação.
+- Tempo máximo por página.
+- Concorrência.
+- Retentativas.
+- Retenção de evidências.
+- Configurações de exportação.
+- Versão dos extratores.
+- Status dos serviços.
+
+Nunca expor chaves de API ao frontend.
+
+---
+
+## 9. ARQUITETURA E TECNOLOGIA
+
+Escolha uma arquitetura simples, sustentável e compatível com os requisitos reais da coleta.
+
+Avalie:
+- Frontend web moderno em TypeScript.
+- Backend para executar tarefas de coleta e enriquecimento.
+- Banco relacional com suporte a JSON.
+- Serviço de armazenamento de arquivos, quando necessário.
+- Processamento assíncrono para execuções longas.
+- Mecanismo de retomada após falhas.
+- Exportação em streaming.
+- Logs e métricas de execução.
+
+Supabase/PostgreSQL pode ser utilizado para persistência e consulta. Cloudflare pode ser considerado para hospedagem da interface, APIs e serviços compatíveis.
+
+Entretanto, não force o motor de raspagem a funcionar exclusivamente em ambientes serverless se ele exigir um navegador, processos persistentes ou recursos indisponíveis nesse ambiente.
+
+Avalie tecnicamente o repositório de referência e escolha um local de execução compatível com suas dependências. Não introduza VPS, Docker ou serviços pagos como requisitos obrigatórios sem demonstrar necessidade.
+
+Se Firecrawl for utilizado como serviço externo, configure a chave exclusivamente no backend. A ausência da credencial deverá gerar um aviso claro, sem simular resultados bem-sucedidos.
+
+A aplicação deve continuar independente de outros projetos do usuário. Integrações com os serviços necessários à própria raspagem e persistência são permitidas; integrações com os demais produtos não são necessárias.
+
+---
+
+## 10. EXECUÇÃO AUTOMATIZADA E CONFIABILIDADE
+
+Implementar:
+- Execução em segundo plano.
+- Indicadores de progresso reais.
+- Limites configuráveis.
+- Retentativas com espera progressiva.
+- Controle de concorrência.
+- Persistência incremental.
+- Cancelamento seguro.
+- Retomada após interrupção.
+- Identificação de registros processados.
+- Detecção de falhas por fonte.
+- Logs por estabelecimento.
+- Logs por campo.
+- Identificação de páginas inacessíveis.
+- Registro de alterações de DOM.
+- Detecção de seletores quebrados.
+- Relatório de cobertura.
+- Relatório de erros.
+- Proteção contra execuções duplicadas.
+- Verificação de integridade dos arquivos exportados.
+
+Não usar tempos de espera fixos excessivos como substituto para detecção real de carregamento. Utilizar condições de prontidão, limites razoáveis e timeouts configuráveis.
+
+Não burlar CAPTCHAs, autenticação, controles de acesso, limites técnicos ou medidas de segurança. Tratar bloqueios como eventos registrados, não como motivo para implementar mecanismos de evasão.
+
+---
+
+## 11. SEGURANÇA, PRIVACIDADE E USO DAS FONTES
+
+A plataforma deverá priorizar dados comerciais públicos e respeitar as restrições aplicáveis às fontes utilizadas.
+
+Implementar:
+- Proteção das credenciais.
+- Controle de acesso à aplicação.
+- Validação de URLs e destinos para prevenir SSRF.
+- Proteção contra injeção de fórmulas em arquivos exportados.
+- Limites de requisições.
+- Logs sem segredos.
+- Retenção configurável.
+- Registro de origem dos dados.
+- Mecanismos para excluir ou suprimir registros.
+- Registro de restrições de utilização.
+- Tratamento cuidadoso de informações pessoais.
+- Respeito às licenças, aos termos das fontes e às obrigações legais aplicáveis.
+
+Não coletar dados privados nem tentar contornar restrições de acesso. Não armazenar páginas ou conteúdos protegidos indiscriminadamente. Quando uma fonte impuser limitações de armazenamento ou redistribuição, respeitá-las e registrar as restrições.
+
+Esses requisitos não devem impedir o desenvolvimento do sistema. Devem orientar sua implementação e o tratamento de cada fonte.
+
+---
+
+## 12. TESTES OBRIGATÓRIOS
+
+Crie testes automatizados para:
+- Normalização de nomes.
+- Normalização de telefones.
+- Normalização de URLs.
+- Validação de campos.
+- Deduplicação.
+- Preservação de valores originais.
+- Atualização de registros.
+- Registro de fontes.
+- Registro de erros.
+- Versionamento de esquemas.
+- Descoberta e validação de seletores.
+- Exportação CSV.
+- Exportação JSON.
+- Geração de ZIP.
+- Integridade de relacionamentos.
+- Importação de exemplos exportados.
+- Escape de CSV e prevenção de fórmulas.
+- Paginação.
+- Retomada após falhas.
+- Execução concorrente.
+- Tratamento de credenciais ausentes.
+- Proteção de rotas e credenciais.
+
+Criar testes de integração para o fluxo completo:
+
+**Pesquisar → coletar → enriquecer → persistir → normalizar → deduplicar → exportar → validar os arquivos.**
+
+Usar fixtures para testes unitários e páginas de teste controladas para validar extração. Realizar também um teste real, autorizado e limitado, para verificar a integração com o mecanismo de coleta.
+
+Não apresentar testes com fixtures como prova de que a raspagem real funciona.
+
+Não considerar o projeto concluído enquanto a exportação contiver registros inconsistentes, campos corrompidos ou arquivos inválidos.
+
+---
+
+## 13. CRITÉRIOS DE ACEITAÇÃO
+
+A implementação só estará concluída quando os seguintes critérios forem comprovados:
+
+1. A aplicação inicia corretamente.
+2. O banco de dados está configurado e as migrações funcionam.
+3. É possível criar uma pesquisa pela interface.
+4. O mecanismo de coleta executa uma pesquisa real.
+5. Os dados obtidos são persistidos.
+6. As fontes e datas de coleta são registradas.
+7. O enriquecimento é executado quando há fontes disponíveis e configuradas.
+8. Os erros são registrados e apresentados.
+9. O sistema permite consultar os estabelecimentos coletados.
+10. O sistema permite consultar a origem dos campos.
+11. O sistema permite cadastrar e visualizar campos extensíveis.
+12. O sistema permite visualizar e revalidar seletores.
+13. A exportação CSV gera um arquivo válido em UTF-8.
+14. A exportação JSON preserva estruturas complexas.
+15. A exportação ZIP mantém as relações entre tabelas.
+16. O manifesto e o dicionário de campos são gerados.
+17. Os arquivos podem ser utilizados sem conexão com a aplicação de origem.
+18. O fluxo completo possui testes automatizados.
+19. A implantação está documentada e pode ser reproduzida.
+20. Nenhum dado fictício é apresentado como resultado de coleta real.
+
+Quando um requisito depender de credenciais externas, informe exatamente qual configuração está ausente e deixe o recurso preparado para execução. Não invente resultados, não simule integrações e não declare concluída uma etapa que não foi executada.
+
+---
+
+## 14. MÉTODO DE DESENVOLVIMENTO
+
+Execute o trabalho nesta ordem:
+
+### Fase 1 — Inspeção técnica do projeto de referência
+Clonar o repositório, examinar sua licença, arquitetura, dependências, campos e mecanismo de coleta. Produzir um inventário técnico interno e identificar o que pode ser reaproveitado.
+
+### Fase 2 — Arquitetura e modelo de dados
+Implementar o modelo de persistência, as relações, os campos extensíveis, as fontes e as evidências.
+
+### Fase 3 — Motor de coleta
+Integrar o coletor de referência e desenvolver os adaptadores necessários. Validar a extração com dados reais acessíveis.
+
+### Fase 4 — Enriquecimento e rastreabilidade
+Integrar Firecrawl quando configurado, implementar a descoberta de páginas, a extração de dados estruturados, o registro de fontes e a validação de seletores.
+
+### Fase 5 — Aplicação web
+Implementar todas as páginas funcionais descritas neste prompt, utilizando dados reais do banco.
+
+### Fase 6 — Exportação
+Implementar CSV, JSON e ZIP com múltiplos CSVs, incluindo esquema, manifesto e relacionamentos.
+
+### Fase 7 — Testes e correções
+Executar os testes, corrigir os erros encontrados e validar o fluxo completo. Não interromper o trabalho após produzir apenas um relatório de problemas.
+
+### Fase 8 — Preparação para implantação
+Preparar configuração, migrações, credenciais documentadas, instruções de execução, implantação, operação e manutenção.
+
+Se o ambiente do Google AI Studio não permitir executar ou hospedar algum componente, implemente os arquivos e as interfaces necessários, documente precisamente o requisito externo e não apresente a funcionalidade como operacional antes de validá-la.
+
+---
+
+## 15. ENTREGA FINAL
+
+Entregue uma aplicação funcional e um projeto organizado, com:
+- Código-fonte completo.
+- Frontend.
+- Backend.
+- Modelo de dados e migrações.
+- Motor de coleta integrado ou adaptador implementado.
+- Integração configurável com Firecrawl.
+- Catálogo de campos.
+- Descoberta e validação de seletores.
+- Armazenamento de dados e evidências.
+- Histórico de execuções.
+- Gestão de estabelecimentos.
+- Exportação CSV, JSON e ZIP.
+- Dicionário de dados.
+- Testes automatizados.
+- Arquivo de exemplo CSV.
+- Manifesto de exportação.
+- Instruções de configuração e implantação.
+- Registro das dependências e respectivas licenças.
+
+Ao final, apresente um resumo objetivo com:
+1. O que foi implementado.
+2. Quais partes do repositório de referência foram aproveitadas.
+3. Quais campos foram implementados e quais dependem de fontes específicas.
+4. Quais testes foram realmente executados e seus resultados.
+5. Como iniciar a aplicação.
+6. Como configurar o banco e o Firecrawl.
+7. Como executar uma pesquisa real.
+8. Como baixar o CSV e os arquivos complementares.
+9. Quais limitações técnicas ainda existem.
+
+**Prioridade absoluta:** entregar um sistema independente que colete, preserve, enriqueça e exporte dados comerciais de forma automatizada, extensível e rastreável. Não reduzir o escopo a um dashboard, não limitar arbitrariamente o catálogo de campos e não declarar funcionalidades concluídas sem evidências de funcionamento.

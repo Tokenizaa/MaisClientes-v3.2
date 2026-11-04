@@ -1,0 +1,8 @@
+{
+  "name": "Mais Cilientes-v3.1 - Coleta e Enriquecimento Comercial",
+  "description": "Plataforma de alta precisão para raspagem de dados comerciais, enriquecimento via web e DOM, rastreabilidade de seletores e exportação universal em CSV, JSON e ZIP.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

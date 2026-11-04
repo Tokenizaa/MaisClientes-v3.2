@@ -1,0 +1,1013 @@
+openapi: 3.1.0
+info:
+  title: MapScrape REST API
+  version: 1.0.0
+  description: >-
+    API central de coleta e consulta de leads. Consumidores usam HTTP/HTTPS;
+    não devem clonar o scraper nem acessar o banco diretamente. Campos e respostas
+    descrevem o contrato implementado atualmente, não garantem que a fonte exponha
+    todos os dados em cada coleta.
+  contact:
+    name: MapScrape API documentation
+    url: https://mais-clientes-v2.vercel.app/docs/
+servers:
+  - url: https://mais-clientes-v2.vercel.app
+    description: Produção atual
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Projects
+  - name: Categories
+  - name: Jobs
+  - name: Leads
+  - name: Provisioning
+paths:
+  /api/v1/health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Verificar serviço e banco
+      description: Não verifica a conectividade do navegador nem comprova que a coleta real está operacional.
+      responses:
+        '200':
+          description: Serviço e banco disponíveis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Banco indisponível
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDegraded'
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      summary: Listar projetos do consumidor autenticado
+      responses:
+        '200':
+          description: Projetos visíveis no escopo da credencial
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Projects]
+      summary: Criar ou reutilizar projeto pelo nome
+      description: Nome vazio gera 422. A normalização por nome ocorre dentro do escopo do consumidor; repetir o mesmo nome reutiliza o cadastro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: Nome do projeto; espaços externos são removidos.
+              example:
+                name: Prospecção de clínicas em Porto Alegre
+      responses:
+        '201':
+          description: Projeto resolvido ou criado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/projects/{id}:
+    patch:
+      tags: [Projects]
+      summary: Atualizar nome do projeto
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Projeto atualizado
+        '404':
+          description: Projeto não encontrado
+        '409':
+          description: Já existe projeto com este nome
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+    delete:
+      tags: [Projects]
+      summary: Excluir projeto
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Projeto excluído
+        '404':
+          description: Projeto não encontrado
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      summary: Listar categorias de pesquisa do consumidor
+      description: Categoria de pesquisa é um cadastro próprio e não é o campo category extraído da ficha do Google Maps.
+      responses:
+        '200':
+          description: Categorias visíveis no escopo da credencial
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Categories]
+      summary: Criar ou reutilizar categoria de pesquisa pelo nome
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: Nome da categoria; espaços externos são removidos.
+              example:
+                name: Clínica odontológica
+      responses:
+        '201':
+          description: Categoria resolvida ou criada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SearchCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/categories/{id}:
+    patch:
+      tags: [Categories]
+      summary: Atualizar nome da categoria de pesquisa
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Categoria atualizada
+        '404':
+          description: Categoria não encontrada
+        '409':
+          description: Já existe categoria com este nome
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+    delete:
+      tags: [Categories]
+      summary: Excluir categoria de pesquisa
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Categoria excluída
+        '404':
+          description: Categoria não encontrada
+  /api/v1/leads:
+    get:
+      tags: [Leads]
+      summary: Pesquisar leads persistidos
+      description: A pesquisa fica limitada ao consumidor autenticado. Valores vazios indicam dados não persistidos, não ausência do atributo no negócio.
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+          description: Busca textual nos campos name, category, address, phone e website.
+        - in: query
+          name: jobId
+          schema:
+            type: string
+          description: Filtrar por ID de coleta.
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [name, category, rating, review_count, collected_at]
+          description: Campo de ordenação documentado.
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: asc aplica ordem crescente; outros valores são tratados como desc pela implementação.
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Página de leads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidPagination'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/leads/{id}:
+    get:
+      tags: [Leads]
+      summary: Obter detalhes completos de um lead
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Lead encontrado e pertencente ao consumidor
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Lead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Lead inexistente ou fora do escopo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/jobs:
+    get:
+      tags: [Jobs]
+      summary: Listar jobs (coletas) do consumidor autenticado
+      responses:
+        '200':
+          description: Jobs visíveis no escopo da credencial
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Jobs]
+      summary: Iniciar coleta assíncrona
+      description: >-
+        Retorna 202 quando a solicitação foi persistida/aceita, não quando a coleta terminou.
+        Não há suporte documentado a Idempotency-Key; não repita POST automaticamente após timeout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [segment, location]
+              properties:
+                segment:
+                  type: string
+                  minLength: 1
+                  description: Termo/segmento de busca.
+                location:
+                  type: string
+                  minLength: 1
+                  description: Localização textual da busca.
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 20
+                  description: Quantidade máxima solicitada (1–100).
+                projectName:
+                  type: string
+                  description: Nome do projeto; padrão segment + localização.
+                categoryName:
+                  type: string
+                  description: Nome da categoria de pesquisa; padrão igual a segment.
+              example:
+                projectName: Prospecção Porto Alegre
+                categoryName: Clínica odontológica
+                segment: clínicas odontológicas
+                location: Porto Alegre, RS
+                limit: 20
+      responses:
+        '202':
+          description: Coleta aceita; faça polling pelo jobId
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [jobId, status, statusUrl, resultsUrl]
+                    properties:
+                      jobId:
+                        type: string
+                      status:
+                        type: string
+                        const: running
+                      statusUrl:
+                        type: string
+                        description: URL relativa para consultar o status.
+                      resultsUrl:
+                        type: string
+                        description: URL relativa para consultar resultados paginados.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/jobs/{id}:
+    get:
+      tags: [Jobs]
+      summary: Consultar status, progresso e contadores da coleta
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Estado atual da coleta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Coleta inexistente ou fora do escopo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Jobs]
+      summary: Excluir uma coleta e seus resultados
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Job excluído
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                        const: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Coleta inexistente ou fora do escopo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/jobs/{id}/stop:
+    post:
+      tags: [Jobs]
+      summary: Interromper uma coleta em andamento
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Job interrompido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                        const: stopped
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Coleta inexistente ou fora do escopo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Coleta não está em andamento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/jobs/{id}/results:
+    get:
+      tags: [Jobs]
+      summary: Consultar resultados paginados de uma coleta
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Página de leads da coleta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Coleta inexistente ou fora do escopo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/InvalidPagination'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/provisioning/credentials:
+    post:
+      tags: [Provisioning]
+      security:
+        - platformAdminBearer: []
+        - provisioningToken: []
+      summary: Emitir credencial individual de consumidor
+      description: Somente infraestrutura autorizada. apiKey é retornada uma única vez; não exponha a resposta em logs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consumerName, consumerProject]
+              properties:
+                consumerName:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                consumerProject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+              example:
+                consumerName: Beleza Digital
+                consumerProject: beleza-digital
+      responses:
+        '201':
+          description: Credencial criada; segredo revelado uma única vez
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [credentialId, apiKey, consumerName, consumerProject, revealOnce]
+                    properties:
+                      credentialId:
+                        type: string
+                      apiKey:
+                        type: string
+                        writeOnly: true
+                      consumerName:
+                        type: string
+                      consumerProject:
+                        type: string
+                      revealOnce:
+                        type: boolean
+                        const: true
+        '401':
+          $ref: '#/components/responses/ProvisioningUnauthorized'
+        '409':
+          description: Projeto já possui credencial ativa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    get:
+      tags: [Provisioning]
+      security:
+        - platformAdminBearer: []
+        - provisioningToken: []
+      summary: Listar metadados de credenciais
+      description: Não retorna chaves em texto claro.
+      responses:
+        '200':
+          description: Metadados de credenciais
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CredentialMetadata'
+        '401':
+          $ref: '#/components/responses/ProvisioningUnauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/provisioning/credentials/{id}:
+    delete:
+      tags: [Provisioning]
+      security:
+        - platformAdminBearer: []
+        - provisioningToken: []
+      summary: Revogar credencial ativa
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Credencial revogada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      credentialId:
+                        type: string
+                      status:
+                        type: string
+                        const: revoked
+        '401':
+          $ref: '#/components/responses/ProvisioningUnauthorized'
+        '404':
+          description: Credencial ativa não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/provisioning/credentials/{id}/rotate:
+    post:
+      tags: [Provisioning]
+      security:
+        - platformAdminBearer: []
+        - provisioningToken: []
+      summary: Rotacionar credencial ativa
+      description: Revoga a chave anterior antes de criar a substituta. Se a criação falhar, a anterior permanece revogada.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '201':
+          description: Nova chave revelada uma única vez
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [credentialId, previousCredentialId, apiKey, consumerName, consumerProject, revealOnce]
+                    properties:
+                      credentialId:
+                        type: string
+                      previousCredentialId:
+                        type: string
+                      apiKey:
+                        type: string
+                        writeOnly: true
+                      consumerName:
+                        type: string
+                      consumerProject:
+                        type: string
+                      revealOnce:
+                        type: boolean
+                        const: true
+        '401':
+          $ref: '#/components/responses/ProvisioningUnauthorized'
+        '404':
+          description: Credencial ativa não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflito ao revogar a credencial
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+      description: Credencial individual de consumidor. Não é o token de provisionamento.
+    platformAdminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Session JWT
+      description: Sessão autenticada da plataforma; exige papel admin.
+    provisioningToken:
+      type: apiKey
+      in: header
+      name: X-MapScrape-Provisioning-Token
+      description: Segredo administrativo para automação server-to-server; nunca entregar a consumidores.
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    Limit:
+      in: query
+      name: limit
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+      description: Quantidade por página. Para POST /api/v1/jobs, o padrão é 20.
+    Offset:
+      in: query
+      name: offset
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: Número de itens a pular.
+  responses:
+    Unauthorized:
+      description: Credencial de consumidor ausente ou inválida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ProvisioningUnauthorized:
+      description: Token administrativo ausente ou inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InvalidRequest:
+      description: Body JSON ou parâmetros inválidos
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InvalidPagination:
+      description: limit/offset inválidos
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServerError:
+      description: Falha interna da API
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Health:
+      type: object
+      required: [status, service, apiVersion, database, totalLeads, timestamp]
+      properties:
+        status:
+          type: string
+          const: ok
+        service:
+          type: string
+          const: mapscrape-api
+        apiVersion:
+          type: string
+          const: v1
+        database:
+          type: string
+          const: connected
+        totalLeads:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+    HealthDegraded:
+      type: object
+      required: [status, service, apiVersion, database]
+      properties:
+        status:
+          type: string
+          const: degraded
+        service:
+          type: string
+          const: mapscrape-api
+        apiVersion:
+          type: string
+          const: v1
+        database:
+          type: string
+          const: unavailable
+    Project:
+      type: object
+      required: [id, name, consumer_project, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: Identificador estável do projeto no escopo do consumidor.
+        name:
+          type: string
+        consumer_project:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SearchCategory:
+      type: object
+      required: [id, name, consumer_project, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        consumer_project:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    LeadPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lead'
+        pagination:
+          type: object
+          required: [total, limit, offset, hasMore]
+          properties:
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+            hasMore:
+              type: boolean
+    Lead:
+      type: object
+      required: [id, job_id, name, category, address, phone, website, rating, review_count, price_range, opening_hours, business_status, latitude, longitude, maps_url, description, services_attributes, photos, videos, logo_url, booking_url, social_links, reviews, review_topics, additional_attributes, media_items, plus_code, collected_at]
+      properties:
+        id: { type: string, description: ID persistido do lead. }
+        job_id: { type: string, description: ID do job de origem. }
+        name: { type: string, description: Nome exibido na ficha. }
+        category: { type: string, description: Categoria extraída da ficha; diferente de SearchCategory. }
+        address: { type: string }
+        phone: { type: string }
+        website: { type: string }
+        rating: { type: string, description: Nota como texto, não number. }
+        review_count: { type: string, description: Contagem de avaliações como texto. }
+        price_range: { type: string }
+        opening_hours: { type: string }
+        business_status: { type: string }
+        latitude: { type: string, description: Coordenada como texto. }
+        longitude: { type: string, description: Coordenada como texto. }
+        maps_url: { type: string, format: uri }
+        description: { type: string }
+        services_attributes:
+          description: JSON objeto quando parseável; texto pode ser preservado em registros legados.
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+        photos:
+          type: array
+          items: { type: string }
+        videos:
+          type: array
+          items: { type: string }
+        logo_url: { type: string }
+        booking_url: { type: string }
+        social_links:
+          type: array
+          items: { type: string }
+        reviews:
+          description: Avaliações; o formato dos itens depende da captura da fonte.
+          anyOf:
+            - type: array
+              items: {}
+            - type: string
+        review_topics:
+          anyOf:
+            - type: array
+              items: {}
+            - type: string
+        additional_attributes:
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+        media_items:
+          anyOf:
+            - type: array
+              items: {}
+            - type: string
+        plus_code: { type: string }
+        attributes:
+          description: Lista JSON de atributos públicos normalizados.
+          anyOf:
+            - type: array
+              items: { type: string }
+            - type: string
+        accessibility_attributes:
+          description: Lista JSON de atributos públicos de acessibilidade.
+          anyOf:
+            - type: array
+              items: { type: string }
+            - type: string
+        next_opening_text: { type: string, description: Texto de próxima abertura exposto pelo Maps. }
+        next_open_day: { type: string, description: Dia de abertura explicitamente identificado. }
+        next_open_time: { type: string, description: Horário de abertura explicitamente identificado. }
+        visible_photos_count: { type: string, description: Contagem explícita exibida na ficha, nunca inferida do número capturado. }
+        postal_code: { type: string, description: CEP/código postal extraído quando identificável no endereço exibido. }
+        country: { type: string, description: País identificado no endereço público, sem inferência quando ausente. }
+        city: { type: string, description: Cidade identificada no endereço público. }
+        state: { type: string, description: Estado/região identificado no endereço público. }
+        source_place_id: { type: string, description: Identificador da ficha extraído da URL do Google Maps quando presente. }
+        source_url: { type: string, format: uri, description: URL de origem usada para a coleta. }
+        popular_times:
+          description: Dados de movimento efetivamente expostos no DOM; não garante cobertura semanal completa.
+          anyOf:
+            - type: array
+              items: { type: object, additionalProperties: true }
+            - type: string
+        rating_distribution:
+          description: Contagens por estrelas 1–5 somente quando explicitamente exibidas.
+          anyOf:
+            - type: object
+              additionalProperties: { type: integer }
+            - type: string
+        review_highlights:
+          description: Trechos de resumo de avaliações capturados quando expostos separadamente dos reviews individuais.
+          anyOf:
+            - type: array
+              items: { type: string }
+            - type: string
+        field_status:
+          description: Status por campo; not_observed_in_session significa que o extrator não observou valor nesta sessão e não prova que o dado inexiste na fonte.
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+        collected_at: { type: string, description: Timestamp textual persistido. }
+    Job:
+      type: object
+      required: [id, segment, location, limit_requested, status, status_message, total_found, total_collected, total_duplicates, total_errors, created_at, isRunning]
+      properties:
+        id: { type: string }
+        segment: { type: string }
+        project_name: { type: string }
+        project_id: { type: string }
+        category_id: { type: string }
+        location: { type: string }
+        limit_requested: { type: integer }
+        status:
+          type: string
+          enum: [running, completed, partial, stopped, failed]
+        status_message: { type: string }
+        total_found: { type: integer }
+        total_collected: { type: integer }
+        total_duplicates: { type: integer }
+        total_errors: { type: integer }
+        current_step: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        isRunning: { type: boolean }
+    CredentialMetadata:
+      type: object
+      properties:
+        id: { type: string }
+        consumer_name: { type: string }
+        consumer_project: { type: string }
+        status: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+      description: Metadados; nunca contém key nem key_hash.
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
