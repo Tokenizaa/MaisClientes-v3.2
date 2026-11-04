@@ -11,8 +11,6 @@ import {
   AlertCircle,
   Square,
   Database,
-  Radio,
-  FileSpreadsheet,
   UserRound,
   LogOut,
   Kanban,
@@ -82,9 +80,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'projects' as ScreenTab,
-      label: 'Projetos & Histórico',
+      label: 'Projetos e Coletas',
       icon: FolderKanban,
-      description: 'Campanhas e coletas salvas',
+      description: 'Projetos, categorias e histórico',
     },
     {
       id: 'dashboard' as ScreenTab,
@@ -96,8 +94,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'logs' as ScreenTab,
       label: 'Auditoria & Sistema',
       icon: ClipboardList,
-      description: 'Logs e credenciais',
+      description: 'Logs de atividade e auditoria',
     },
+    ...(isAdmin ? [{
+      id: 'credentials' as ScreenTab,
+      label: 'Credenciais API',
+      icon: KeyRound,
+      description: 'Chaves de integração e acesso',
+    }] : []),
   ];
 
   return (
@@ -153,8 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isActive =
               currentTab === item.id ||
               (item.id === 'results' && currentTab === 'export') ||
-              (item.id === 'projects' && currentTab === 'history') ||
-              (item.id === 'logs' && currentTab === 'credentials');
+              (item.id === 'projects' && currentTab === 'history');
 
             return (
               <button
