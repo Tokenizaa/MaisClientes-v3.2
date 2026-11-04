@@ -25,7 +25,7 @@ async function runCommercialTests() {
 
   const page = await context.newPage();
 
-  console.log('📍 Acessando aplicação em ${BASE_URL}...');
+  console.log(`📍 Acessando aplicação em ${BASE_URL}...`);
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
 
   // If AuthScreen is shown, log in with administrator credentials
