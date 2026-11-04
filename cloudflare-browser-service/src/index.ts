@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import { isValidSessionId, parseSessionTtl } from "./validation";
 
 export interface Env {
@@ -127,9 +128,7 @@ export default {
   },
 };
 
-export class BrowserSessionProxy {
-  constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
-
+export class BrowserSessionProxy extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("WebSocket upgrade required", { status: 426 });
