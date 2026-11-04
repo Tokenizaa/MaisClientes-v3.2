@@ -8,7 +8,7 @@ export interface Env {
   BROWSER_RUN_API_BASE?: string;
   DEFAULT_SESSION_TTL_MS?: string;
   MAX_SESSION_TTL_MS?: string;
-  SESSION_PROXY: DurableObjectNamespace<BrowserSessionProxy>;
+  SESSION_PROXY: DurableObjectNamespace;
 }
 
 function json(data: unknown, status = 200): Response {
