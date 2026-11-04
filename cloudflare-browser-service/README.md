@@ -1,5 +1,7 @@
 # Nettos Browser Service
 
+> Status: implementation in progress; deploy only after CI validation and account secrets are configured.
+
 Serviço independente para centralizar sessões Cloudflare Browser Run e permitir que aplicações consumidoras usem CDP/Playwright/Puppeteer sem receber o token administrativo da Cloudflare.
 
 ## Arquitetura
