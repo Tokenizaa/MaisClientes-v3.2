@@ -391,7 +391,8 @@ export const LeadDetailsModal: React.FC<Props> = ({
 
   return createPortal((
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4 lg:p-6"
+      className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4 lg:p-6"
+      style={{ zIndex: 2147483647, isolation: "isolate" }}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
