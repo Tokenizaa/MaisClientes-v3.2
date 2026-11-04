@@ -783,16 +783,16 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => toggleExpandPlace(place.id)}
+                        onClick={() => setSelectedPlace(place)}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
                           isExpanded
                             ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-600/30'
                             : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border-blue-500/30'
                         }`}
-                        title={isExpanded ? 'Recolher inteligência comercial' : 'Expandir inteligência comercial deste estabelecimento'}
+                        title={isExpanded ? 'Recolher inteligência comercial' : 'Abrir ficha e inteligência comercial'}
                       >
                         <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                        <span>{isExpanded ? 'Recolher BI' : 'Expandir BI'}</span>
+                        <span>{isExpanded ? 'Recolher BI' : 'Abrir inteligência'}</span>
                         <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                       </button>
                       <button
@@ -836,7 +836,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => toggleExpandPlace(place.id)}
+                          onClick={() => setSelectedPlace(place)}
                           className="text-xs font-medium text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 cursor-pointer"
                         >
                           Recolher
@@ -1001,13 +1001,13 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => toggleExpandPlace(place.id)}
+                            onClick={() => setSelectedPlace(place)}
                             className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
                               isExpanded
                                 ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
                                 : 'bg-slate-800 text-slate-400 hover:text-slate-100 border-slate-700'
                             }`}
-                            title={isExpanded ? 'Recolher análise comercial' : 'Expandir análise comercial inline'}
+                            title={isExpanded ? 'Recolher análise comercial' : 'Abrir ficha e inteligência comercial'}
                           >
                             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                           </button>
@@ -1051,7 +1051,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => toggleExpandPlace(place.id)}
+                                  onClick={() => setSelectedPlace(place)}
                                   className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded bg-slate-800 border border-slate-700 cursor-pointer"
                                 >
                                   Recolher

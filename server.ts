@@ -2272,8 +2272,8 @@ export async function createApp() {
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
       const {
         placeId,
-        stage = 'qualificacao',
-        dealValue = 0,
+        stage,
+        dealValue,
         nextAction = '',
         notes = '',
         contactName = '',
@@ -2293,12 +2293,11 @@ export async function createApp() {
       const intel = store.getWebIntelligence(placeId);
 
       if (existingOpp) {
-        // Atualiza a oportunidade já existente para evitar duplicatas sem regra explícita
+        // POST repetido é idempotente: não deve reiniciar etapa nem zerar valor.
+        // Alterações comerciais explícitas devem usar PATCH /opportunities/:id.
         const updates: Partial<OpportunityRecord> = {
-          stage,
           updated_at: new Date().toISOString(),
         };
-        if (dealValue !== undefined) updates.deal_value = Number(dealValue) || 0;
         if (contactName) updates.contact_name = String(contactName).trim();
         if (assignedTo) updates.assigned_to = String(assignedTo).trim();
         if (nextAction) updates.next_action = String(nextAction).trim();
@@ -2325,8 +2324,8 @@ export async function createApp() {
         phone: place.phone,
         website: place.website,
         city: place.city,
-        stage,
-        deal_value: Number(dealValue) || 0,
+        stage: stage || 'qualificacao',
+        deal_value: dealValue === undefined || dealValue === null || dealValue === '' ? 0 : Math.max(0, Number(dealValue) || 0),
         contact_name: String(contactName || '').trim(),
         assigned_to: String(assignedTo || '').trim(),
         next_action: String(

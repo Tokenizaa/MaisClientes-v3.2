@@ -82,6 +82,7 @@ export const KanbanScreen: React.FC<Props> = ({ places, onSelectPlaceForDetails 
   }, [loadOpportunities]);
 
   const handleMoveStage = async (id: string, stage: OpportunityStage) => {
+    const previous = opportunities;
     setOpportunities((prev) =>
       prev.map((opp) => (opp.id === id ? { ...opp, stage, updated_at: new Date().toISOString() } : opp))
     );
@@ -91,23 +92,30 @@ export const KanbanScreen: React.FC<Props> = ({ places, onSelectPlaceForDetails 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setOpportunities((prev) => prev.map((o) => (o.id === id ? json.data : o)));
+      if (!res.ok) {
+        throw new Error(`Falha HTTP ${res.status} ao mover oportunidade.`);
       }
+      const json = await res.json();
+      setOpportunities((prev) => prev.map((o) => (o.id === id ? json.data : o)));
     } catch (err) {
       console.error('Falha ao mover estágio:', err);
-      loadOpportunities();
+      setOpportunities(previous);
+      await loadOpportunities();
     }
   };
 
   const handleDeleteOpportunity = async (id: string) => {
+    const previous = opportunities;
     setOpportunities((prev) => prev.filter((opp) => opp.id !== id));
     try {
-      await apiFetch(`/api/v1/opportunities/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/opportunities/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error(`Falha HTTP ${res.status} ao excluir oportunidade.`);
+      }
     } catch (err) {
       console.error('Falha ao excluir oportunidade:', err);
-      loadOpportunities();
+      setOpportunities(previous);
+      await loadOpportunities();
     }
   };
 
