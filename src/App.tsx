@@ -101,10 +101,12 @@ export default function App() {
           }
         }
       } else {
-        // No session - clear any stored auth state
-        window.sessionStorage.removeItem('mapscrape_session_token');
-        window.sessionStorage.removeItem('mapscrape_user');
-        setAuthUser(null);
+        const localToken = window.sessionStorage.getItem('mapscrape_session_token');
+        if (!localToken || !localToken.startsWith('sess_')) {
+          window.sessionStorage.removeItem('mapscrape_session_token');
+          window.sessionStorage.removeItem('mapscrape_user');
+          setAuthUser(null);
+        }
       }
     });
     
@@ -136,8 +138,7 @@ export default function App() {
         } catch (err) {
           // Fall back
         }
-      } else {
-        // User signed out
+      } else if (event === 'SIGNED_OUT') {
         window.sessionStorage.removeItem('mapscrape_session_token');
         window.sessionStorage.removeItem('mapscrape_user');
         setAuthUser(null);

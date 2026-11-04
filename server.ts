@@ -2244,8 +2244,23 @@ export async function createApp() {
     try {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
-      const list = store.getOpportunities(user.id);
+      let list = store.getOpportunities(user.id);
+      if (req.query.place_id) {
+        list = list.filter((o) => o.place_id === req.query.place_id);
+      }
       return res.json({ data: list });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/v1/opportunities/by-place/:placeId', (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+      const list = store.getOpportunities(user.id);
+      const opp = list.find((o) => o.place_id === req.params.placeId) || null;
+      return res.json({ data: opp });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -2255,14 +2270,51 @@ export async function createApp() {
     try {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
-      const { placeId, stage = 'qualificacao', dealValue = 0, nextAction = '', notes = '', contactName = '' } = req.body;
+      const {
+        placeId,
+        stage = 'qualificacao',
+        dealValue = 0,
+        nextAction = '',
+        notes = '',
+        contactName = '',
+        assignedTo = '',
+        lastContactAt,
+        nextContactAt,
+      } = req.body;
       if (!placeId) return res.status(400).json({ error: 'placeId é obrigatório.' });
 
       const state = store.getState();
       const place = state.places.find((p) => p.id === placeId);
       if (!place) return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
 
+      const existingOpportunities = store.getOpportunities(user.id);
+      const existingOpp = existingOpportunities.find((o) => o.place_id === placeId);
+
       const intel = store.getWebIntelligence(placeId);
+
+      if (existingOpp) {
+        // Atualiza a oportunidade já existente para evitar duplicatas sem regra explícita
+        const updates: Partial<OpportunityRecord> = {
+          stage,
+          updated_at: new Date().toISOString(),
+        };
+        if (dealValue !== undefined) updates.deal_value = Number(dealValue) || 0;
+        if (contactName) updates.contact_name = String(contactName).trim();
+        if (assignedTo) updates.assigned_to = String(assignedTo).trim();
+        if (nextAction) updates.next_action = String(nextAction).trim();
+        if (notes) updates.notes = String(notes).trim();
+        if (lastContactAt) updates.last_contact_at = String(lastContactAt).trim();
+        if (nextContactAt) updates.next_contact_at = String(nextContactAt).trim();
+        if (intel) {
+          updates.web_intelligence = intel;
+          updates.score = intel.scores.overall_score;
+          updates.qualification_tier = intel.scores.qualification_tier;
+        }
+
+        const updated = store.updateOpportunity(existingOpp.id, updates, user.id);
+        await store.flush();
+        return res.status(200).json({ data: updated });
+      }
 
       const opportunity: OpportunityRecord = {
         id: `opp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -2276,10 +2328,19 @@ export async function createApp() {
         stage,
         deal_value: Number(dealValue) || 0,
         contact_name: String(contactName || '').trim(),
-        next_action: String(nextAction || (intel?.commercial_analysis.seller_discovery_questions[0] ? `Perguntar: ${intel.commercial_analysis.seller_discovery_questions[0]}` : 'Ligar para qualificação')).trim(),
-        notes: String(notes || (intel?.commercial_analysis.executive_summary || '')).trim(),
-        score: intel?.scores.overall_score || 70,
-        qualification_tier: intel?.scores.qualification_tier || 'A',
+        assigned_to: String(assignedTo || '').trim(),
+        next_action: String(
+          nextAction ||
+            (intel?.commercial_analysis?.seller_discovery_questions?.[0]
+              ? `Perguntar: ${intel.commercial_analysis.seller_discovery_questions[0]}`
+              : 'Fazer primeiro contato de qualificação')
+        ).trim(),
+        notes: String(notes || (intel?.commercial_analysis?.executive_summary || '')).trim(),
+        score: intel?.scores?.overall_score || 70,
+        qualification_tier: intel?.scores?.qualification_tier || 'A',
+        last_contact_at: lastContactAt ? String(lastContactAt).trim() : undefined,
+        next_contact_at: nextContactAt ? String(nextContactAt).trim() : undefined,
+        contact_history: [],
         web_intelligence: intel,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -2311,18 +2372,90 @@ export async function createApp() {
     try {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
-      const { stage, deal_value, contact_name, next_action, notes } = req.body;
+      const {
+        stage,
+        deal_value,
+        contact_name,
+        assigned_to,
+        next_action,
+        notes,
+        last_contact_at,
+        next_contact_at,
+        contact_history,
+      } = req.body;
+
       const updates: Partial<OpportunityRecord> = {};
-      if (stage) updates.stage = stage;
+      if (stage !== undefined) updates.stage = stage;
       if (deal_value !== undefined) updates.deal_value = Number(deal_value) || 0;
       if (contact_name !== undefined) updates.contact_name = String(contact_name).trim();
+      if (assigned_to !== undefined) updates.assigned_to = String(assigned_to).trim();
       if (next_action !== undefined) updates.next_action = String(next_action).trim();
       if (notes !== undefined) updates.notes = String(notes).trim();
+      if (last_contact_at !== undefined) updates.last_contact_at = String(last_contact_at).trim();
+      if (next_contact_at !== undefined) updates.next_contact_at = String(next_contact_at).trim();
+      if (contact_history !== undefined && Array.isArray(contact_history)) {
+        updates.contact_history = contact_history;
+      }
 
       const updated = store.updateOpportunity(req.params.id, updates, user.id);
       if (!updated) return res.status(404).json({ error: 'Oportunidade não encontrada.' });
       await store.flush();
       return res.json({ data: updated });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/v1/opportunities/:id/interactions', async (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const opp = store.getOpportunities(user.id).find((o) => o.id === req.params.id);
+      if (!opp) return res.status(404).json({ error: 'Oportunidade não encontrada.' });
+
+      const { type = 'ligacao', notes = '', outcome = 'sucesso', performed_by, next_contact_at, next_action } = req.body;
+
+      const now = new Date().toISOString();
+      const interaction = {
+        id: `int_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        notes: String(notes || '').trim(),
+        outcome,
+        performed_by: String(performed_by || user.name || user.email).trim(),
+        next_contact_at: next_contact_at ? String(next_contact_at).trim() : undefined,
+        created_at: now,
+      };
+
+      const history = Array.isArray(opp.contact_history) ? [...opp.contact_history] : [];
+      history.unshift(interaction);
+
+      const updates: Partial<OpportunityRecord> = {
+        contact_history: history,
+        last_contact_at: now,
+      };
+
+      if (next_contact_at) updates.next_contact_at = String(next_contact_at).trim();
+      if (next_action) updates.next_action = String(next_action).trim();
+
+      const updated = store.updateOpportunity(opp.id, updates, user.id);
+      await store.flush();
+
+      const state = store.getState();
+      state.logs.unshift({
+        id: `log_${Date.now()}_interaction`,
+        created_at: now,
+        level: 'info',
+        category: 'kanban',
+        event: 'contact_interaction_logged',
+        message: `Contato registrado (${type}) para "${opp.place_name}".`,
+        job_id: 'kanban',
+        metadata: JSON.stringify({ opportunity_id: opp.id, type, outcome }),
+        user_id: user.id,
+      });
+      store.persist();
+
+      return res.status(201).json({ data: updated, interaction });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }

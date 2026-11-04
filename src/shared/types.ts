@@ -299,6 +299,20 @@ export type OpportunityStage =
   | 'fechado'
   | 'perdido';
 
+export type ContactInteractionType = 'ligacao' | 'whatsapp' | 'email' | 'reuniao' | 'outro';
+
+export type ContactInteractionOutcome = 'sucesso' | 'sem_resposta' | 'reagendado' | 'recusado';
+
+export interface ContactInteraction {
+  id: string;
+  type: ContactInteractionType;
+  notes: string;
+  outcome?: ContactInteractionOutcome;
+  performed_by?: string;
+  next_contact_at?: string;
+  created_at: string;
+}
+
 export interface OpportunityRecord {
   id: string;
   user_id: string;
@@ -311,12 +325,17 @@ export interface OpportunityRecord {
   stage: OpportunityStage;
   deal_value?: number;
   contact_name?: string;
+  assigned_to?: string;
   next_action?: string;
   notes?: string;
   score?: number;
   qualification_tier?: string;
+  last_contact_at?: string;
+  next_contact_at?: string;
+  contact_history?: ContactInteraction[];
   web_intelligence?: WebIntelligenceRecord;
   created_at: string;
   updated_at: string;
 }
+
 
