@@ -14,10 +14,12 @@ import {
   UserRound,
   LogOut,
   Kanban,
+  Shield,
+  CreditCard,
 } from 'lucide-react';
 import { ScrapeJob } from '../shared/types';
 
-export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban';
+export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban' | 'privacy' | 'billing';
 
 interface SidebarProps {
   currentTab: ScreenTab;
@@ -102,6 +104,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: KeyRound,
       description: 'Chaves de integração e acesso',
     }] : []),
+    {
+      id: 'privacy' as ScreenTab,
+      label: 'Privacidade & LGPD',
+      icon: Shield,
+      description: 'Dados, direitos e exportação',
+    },
+    {
+      id: 'billing' as ScreenTab,
+      label: 'Planos e Faturamento',
+      icon: CreditCard,
+      description: 'Gerencie seu plano e assinatura',
+    },
   ];
 
   return (

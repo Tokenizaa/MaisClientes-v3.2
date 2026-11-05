@@ -17,6 +17,8 @@ import { CredentialsScreen } from './components/CredentialsScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { ProfileScreen } from './components/ProfileScreen';
 import { KanbanScreen } from './components/KanbanScreen';
+import { PrivacyScreen } from './components/PrivacyScreen';
+import { BillingScreen } from './components/BillingScreen';
 import { PlaceRecord, ScrapeJob } from './shared/types';
 import { Menu } from 'lucide-react';
 import { AmbientBackground } from './components/AmbientBackground';
@@ -715,6 +717,10 @@ export default function App() {
           )}
 
           {currentTab === 'logs' && <LogsScreen />}
+
+          {currentTab === 'privacy' && <PrivacyScreen />}
+
+          {currentTab === 'billing' && <BillingScreen />}
           </div>
         </main>
       </div>

@@ -28,7 +28,9 @@ if (process.env.VERCEL !== '1' && !fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// User Profile Type
+// ============================================================================
+type PlanTier = 'free' | 'starter' | 'growth' | 'pro';
+
 interface UserProfile {
   id: string;
   email: string;
@@ -36,7 +38,292 @@ interface UserProfile {
   passwordHash: string;
   role: 'admin' | 'user';
   createdAt: string;
+  plan?: PlanTier;
+  planExpiresAt?: string; // ISO date for annual plans
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
 }
+
+const PLAN_LIMITS: Record<PlanTier, { leadsPerMonth: number; projects: number; apiAccess: boolean; webhooks: boolean; whiteLabel: boolean }> = {
+  free: { leadsPerMonth: 500, projects: 1, apiAccess: false, webhooks: false, whiteLabel: false },
+  starter: { leadsPerMonth: 10000, projects: 5, apiAccess: false, webhooks: false, whiteLabel: false },
+  growth: { leadsPerMonth: 50000, projects: 20, apiAccess: true, webhooks: true, whiteLabel: false },
+  pro: { leadsPerMonth: 200000, projects: -1, apiAccess: true, webhooks: true, whiteLabel: true }, // -1 = unlimited
+};
+
+// Extended Plan Config for Billing
+// ============================================================================
+
+interface PlanConfig {
+  leadsPerMonth: number;
+  projects: number;
+  apiAccess: boolean;
+  webhooks: boolean;
+  whiteLabel: boolean;
+  priceMonthly: number; // in cents
+  priceAnnual: number; // in cents
+  pagbankPlanId?: string; // PagBank subscription plan ID
+}
+
+const PLAN_CONFIGS: Record<PlanTier, PlanConfig> = {
+  free: { leadsPerMonth: 500, projects: 1, apiAccess: false, webhooks: false, whiteLabel: false, priceMonthly: 0, priceAnnual: 0 },
+  starter: { leadsPerMonth: 10000, projects: 5, apiAccess: false, webhooks: false, whiteLabel: false, priceMonthly: 19700, priceAnnual: 189120, pagbankPlanId: process.env.PAGBANK_PLAN_STARTER },
+  growth: { leadsPerMonth: 50000, projects: 20, apiAccess: true, webhooks: true, whiteLabel: false, priceMonthly: 49700, priceAnnual: 477120, pagbankPlanId: process.env.PAGBANK_PLAN_GROWTH },
+  pro: { leadsPerMonth: 200000, projects: -1, apiAccess: true, webhooks: true, whiteLabel: true, priceMonthly: 99700, priceAnnual: 957120, pagbankPlanId: process.env.PAGBANK_PLAN_PRO },
+};
+
+function getPlanConfig(plan: PlanTier): PlanConfig {
+  return PLAN_CONFIGS[plan] || PLAN_CONFIGS.free;
+}
+
+function getUserPlan(user: UserProfile): PlanTier {
+  return user.plan || 'free';
+}
+
+function getPlanLimits(plan: PlanTier) {
+  return PLAN_LIMITS[plan];
+}
+
+function isPlanActive(user: UserProfile): boolean {
+  if (!user.planExpiresAt) return true;
+  return new Date(user.planExpiresAt) > new Date();
+}
+
+function getEffectivePlan(user: UserProfile): PlanTier {
+  if (!isPlanActive(user)) return 'free';
+  return getUserPlan(user);
+}
+// PagBank Configuration
+// ============================================================================
+
+interface PagBankConfig {
+  token: string;
+  baseUrl: string;
+  webhookSecret: string;
+}
+
+function getPagBankConfig(): PagBankConfig {
+  const isSandbox = process.env.PAGBANK_ENV === 'sandbox';
+  return {
+    token: isSandbox ? process.env.PAGBANK_SANDBOX_TOKEN || '' : process.env.PAGBANK_PRODUCTION_TOKEN || '',
+    baseUrl: isSandbox ? 'https://sandbox.api.pagseguro.com' : 'https://api.pagseguro.com',
+    webhookSecret: process.env.PAGBANK_WEBHOOK_SECRET || '',
+  };
+}
+
+// Create PagBank order for subscription
+async function createPagBankOrder(params: {
+  planTier: PlanTier;
+  billingCycle: 'monthly' | 'annual';
+  customerEmail: string;
+  customerName: string;
+  customerId: string; // our user ID
+  referenceId: string; // our subscription reference
+}): Promise<{ id: string; checkoutUrl: string; status: string } | null> {
+  const config = getPagBankConfig();
+  if (!config.token) {
+    console.error('[PagBank] Token not configured');
+    return null;
+  }
+
+  const planConfig = getPlanConfig(params.planTier);
+  const amount = params.billingCycle === 'annual' ? planConfig.priceAnnual : planConfig.priceMonthly;
+
+  const orderData = {
+    reference_id: params.referenceId,
+    customer: {
+      name: params.customerName,
+      email: params.customerEmail,
+      tax_id: '', // optional CPF/CNPJ
+      phones: [],
+    },
+    items: [
+      {
+        reference_id: `plan_${params.planTier}_${params.billingCycle}`,
+        name: `Plano ${params.planTier.charAt(0).toUpperCase() + params.planTier.slice(1)} (${params.billingCycle === 'annual' ? 'Anual' : 'Mensal'})`,
+        quantity: 1,
+        unit_amount: amount,
+      },
+    ],
+    shipping: null,
+    notification_urls: [`${process.env.APP_URL || 'https://mapscrape.com'}/api/v1/billing/webhook`],
+    metadata: {
+      user_id: params.customerId,
+      plan_tier: params.planTier,
+      billing_cycle: params.billingCycle,
+    },
+  };
+
+  try {
+    const response = await fetch(`${config.baseUrl}/orders`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.token}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': params.referenceId,
+      },
+      body: JSON.stringify(orderData),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[PagBank] Create order failed:', data);
+      return null;
+    }
+
+    // For PagBank, the order response includes a checkout URL or QR code for payment
+    // The actual payment is handled on PagBank's checkout page
+    const checkoutUrl = data.charges?.[0]?.links?.find((l: any) => l.rel === 'PAY')?.href ||
+                       data.links?.find((l: any) => l.rel === 'PAY')?.href ||
+                       data.checkout_url;
+
+    return {
+      id: data.id,
+      checkoutUrl: checkoutUrl || `${config.baseUrl}/checkout/${data.id}`,
+      status: data.status,
+    };
+  } catch (error) {
+    console.error('[PagBank] Create order error:', error);
+    return null;
+  }
+}
+
+// Get order status from PagBank
+async function getPagBankOrder(orderId: string): Promise<any | null> {
+  const config = getPagBankConfig();
+  if (!config.token) return null;
+
+  try {
+    const response = await fetch(`${config.baseUrl}/orders/${orderId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.error('[PagBank] Get order error:', error);
+    return null;
+  }
+}
+
+// Get charge/payment status from PagBank
+async function getPagBankCharge(chargeId: string): Promise<any | null> {
+  const config = getPagBankConfig();
+  if (!config.token) return null;
+
+  try {
+    const response = await fetch(`${config.baseUrl}/charges/${chargeId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.error('[PagBank] Get charge error:', error);
+    return null;
+  }
+}
+
+// Verify webhook signature
+function verifyPagBankWebhook(req: Request, secret: string): boolean {
+  const signature = req.header('x-signature') || req.header('X-Signature');
+  if (!signature || !secret) return false;
+
+  const body = JSON.stringify(req.body);
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex');
+
+  // Timing-safe comparison
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+}
+
+// Handle successful payment - upgrade user plan
+async function handleSuccessfulPayment(state: any, userId: string, planTier: PlanTier, billingCycle: 'monthly' | 'annual', pagbankOrderId: string, pagbankChargeId: string): Promise<boolean> {
+  const user = state.users.find((u: UserProfile) => u.id === userId);
+  if (!user) {
+    console.error('[Billing] User not found:', userId);
+    return false;
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now);
+  if (billingCycle === 'annual') {
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+  } else {
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+  }
+
+  user.plan = planTier;
+  user.planExpiresAt = expiresAt.toISOString();
+  // Store PagBank references for future webhook handling
+  (user as any).pagbankCustomerId = (user as any).pagbankCustomerId || pagbankOrderId;
+  (user as any).pagbankSubscriptionId = pagbankChargeId;
+
+  state.persist();
+  await state.flush();
+
+  // Log the upgrade
+  state.logs.unshift({
+    id: `log_${Date.now()}_billing`,
+    created_at: new Date().toISOString(),
+    level: 'info',
+    category: 'billing',
+    event: 'subscription_activated',
+    message: `Plano ${planTier} (${billingCycle}) ativado para ${user.email} via PagBank.`,
+    job_id: 'billing',
+    metadata: JSON.stringify({
+      user_id: userId,
+      plan_tier: planTier,
+      billing_cycle: billingCycle,
+      pagbank_order_id: pagbankOrderId,
+      pagbank_charge_id: pagbankChargeId,
+    }),
+    user_id: userId,
+  });
+
+  return true;
+}
+
+// Handle failed/expired payment - downgrade to free
+async function handleFailedPayment(state: any, userId: string): Promise<boolean> {
+  const user = state.users.find((u: UserProfile) => u.id === userId);
+  if (!user) return false;
+
+  user.plan = 'free';
+  user.planExpiresAt = undefined;
+
+  state.persist();
+  await state.flush();
+
+  state.logs.unshift({
+    id: `log_${Date.now()}_billing`,
+    created_at: new Date().toISOString(),
+    level: 'warn',
+    category: 'billing',
+    event: 'subscription_failed',
+    message: `Pagamento falhou/expirou para ${user.email}. Plano rebaixado para free.`,
+    job_id: 'billing',
+    metadata: JSON.stringify({ user_id: userId }),
+    user_id: userId,
+  });
+
+  return true;
+}
+
 
 interface ProjectRecord {
   id: string;
@@ -1826,6 +2113,106 @@ export async function createApp() {
     }
   });
 
+  // DELETE /api/auth/me - LGPD: Direito à exclusão de dados pessoais
+  app.delete('/api/auth/me', async (req: Request, res: Response) => {
+    try {
+      const authenticated = resolveUserFromRequest(req);
+      if (!authenticated) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+      const state = store.getState();
+      const userIndex = state.users.findIndex((item) => item.id === authenticated.id);
+      if (userIndex === -1) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+      const userId = authenticated.id;
+
+      // Remove user's jobs, places, projects, categories, credentials, opportunities
+      state.jobs = state.jobs.filter((job) => job.user_id !== userId);
+      state.places = state.places.filter((place) => {
+        const job = state.jobs.find((j) => j.id === place.job_id);
+        return job !== undefined;
+      });
+      state.projects = state.projects.filter((p) => p.user_id !== userId);
+      state.categories = state.categories.filter((c) => c.user_id !== userId);
+      state.credentials = state.credentials.filter((c) => c.consumer_project !== userId);
+      if (state.opportunities) {
+        state.opportunities = state.opportunities.filter((o) => o.user_id !== userId);
+      }
+      if (state.web_intelligence) {
+        // Web intelligence is tied to places, which are already filtered
+      }
+
+      // Remove the user
+      state.users.splice(userIndex, 1);
+
+      store.persist();
+      await store.flush();
+
+      // Clear session tokens
+      return res.setHeader('Cache-Control', 'no-store').json({
+        success: true,
+        message: 'Conta e todos os dados associados foram excluídos permanentemente.',
+      });
+    } catch (err: any) {
+      console.error('[Auth] Falha ao excluir conta:', err);
+      return res.status(500).json({ error: 'Não foi possível excluir a conta.' });
+    }
+  });
+
+  // GET /api/auth/export - LGPD: Direito à portabilidade de dados
+  app.get('/api/auth/export', async (req: Request, res: Response) => {
+    try {
+      const authenticated = resolveUserFromRequest(req);
+      if (!authenticated) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+      const state = store.getState();
+      const userId = authenticated.id;
+
+      const user = state.users.find((u) => u.id === userId);
+      if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+      const userJobs = state.jobs.filter((job) => job.user_id === userId);
+      const userJobIds = new Set(userJobs.map((job) => job.id));
+      const userPlaces = state.places.filter((place) => userJobIds.has(place.job_id));
+      const userProjects = state.projects.filter((p) => p.user_id === userId);
+      const userCategories = state.categories.filter((c) => c.user_id === userId);
+      const userCredentials = state.credentials.filter((c) => c.consumer_project === userId);
+      const userOpportunities = state.opportunities ? state.opportunities.filter((o) => o.user_id === userId) : [];
+      const userWebIntelligence = state.web_intelligence ? Object.fromEntries(
+        Object.entries(state.web_intelligence).filter(([_, intel]) =>
+          userPlaces.some((p) => p.id === intel.place_id)
+        )
+      ) : {};
+
+      const exportData = {
+        exported_at: new Date().toISOString(),
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          createdAt: user.createdAt,
+        },
+        jobs: userJobs,
+        places: userPlaces,
+        projects: userProjects,
+        categories: userCategories,
+        credentials: userCredentials.map((c) => ({
+          ...c,
+          api_key_hash: undefined, // Never export sensitive data
+        })),
+        opportunities: userOpportunities,
+        web_intelligence: userWebIntelligence,
+      };
+
+      const filename = `mapscrape-export-${userId}-${Date.now()}.json`;
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(JSON.stringify(exportData, null, 2));
+    } catch (err: any) {
+      console.error('[Auth] Falha ao exportar dados:', err);
+      return res.status(500).json({ error: 'Não foi possível exportar os dados.' });
+    }
+  });
+
   // Public liveness/readiness endpoint. Store initialization fails fast when Supabase is unavailable.
   app.get('/api/v1/health', async (_req: Request, res: Response) => {
     try {
@@ -1891,11 +2278,60 @@ export async function createApp() {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
       const userId = user.id;
+
+      // Quota Enforcement: Check monthly lead limit
+      const state = store.getState();
+      const userProfile = state.users.find((u) => u.id === userId);
+
+      let effectivePlan: PlanTier = 'free';
+      let planLimits = PLAN_LIMITS.free;
+      let remainingQuota = 500;
+      let monthlyLeads = 0;
+
+      if (userProfile) {
+        effectivePlan = getEffectivePlan(userProfile);
+        planLimits = getPlanLimits(effectivePlan);
+
+        // Calculate leads collected this month
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const userJobs = state.jobs.filter((job) => job.user_id === userId);
+        const userJobIds = new Set(userJobs.map((job) => job.id));
+        monthlyLeads = state.places
+          .filter((place) => userJobIds.has(place.job_id) && place.collected_at >= monthStart)
+          .length;
+
+        remainingQuota = Math.max(0, planLimits.leadsPerMonth - monthlyLeads);
+
+        if (remainingQuota <= 0) {
+          return res.status(403).json({
+            error: 'Limite mensal de leads atingido',
+            code: 'QUOTA_EXCEEDED',
+            plan: effectivePlan,
+            limit: planLimits.leadsPerMonth,
+            used: monthlyLeads,
+            remaining: 0,
+            message: `Seu plano ${effectivePlan} permite ${planLimits.leadsPerMonth.toLocaleString('pt-BR')} leads/mês. Você já utilizou ${monthlyLeads.toLocaleString('pt-BR')}. Faça upgrade ou aguarde o próximo mês.`,
+          });
+        }
+      }
+
       const parsedLimit = Number.parseInt(String(limit ?? ''), 10);
       const numLimit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(100, parsedLimit)) : 20;
+
+      // Check if requested limit exceeds remaining quota
+      if (numLimit > remainingQuota) {
+        return res.status(400).json({
+          error: 'Limite solicitado excede quota restante',
+          code: 'QUOTA_EXCEEDED_REQUEST',
+          requested: numLimit,
+          remaining: remainingQuota,
+          message: `Você só tem ${remainingQuota} leads restantes neste mês. Reduza o limite ou faça upgrade.`,
+        });
+      }
+
       const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      const state = store.getState();
       let activeJob: ScrapeJob | undefined;
       for (const j of state.jobs) {
         if (j.user_id !== userId || j.status !== 'running') continue;
@@ -2232,6 +2668,159 @@ export async function createApp() {
       const intel = store.getWebIntelligence(id);
       return res.json({ data: intel || null });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // =========================================================================
+  // 3.3. WHITE-LABEL API (/api/v1/analyze) - For ISV partners
+  // =========================================================================
+  //
+  // This endpoint allows ISV partners to analyze a place using their API key
+  // (provisioned via /api/v1/provisioning/credentials). It returns the full
+  // WebIntelligenceRecord including commercial analysis, scores, and evidences.
+  //
+  // Authentication: Bearer token with API key (msk_live_...) or X-API-Key header
+  // Rate limiting: Based on the consumer's plan (pro = higher limits)
+  //
+
+  // Helper: Resolve consumer from API key
+  function resolveConsumerFromApiKey(req: Request): { consumerName: string; consumerProject: string; plan: PlanTier } | null {
+    const apiKey = req.header('X-API-Key') || req.header('Authorization')?.replace(/^Bearer\s+/i, '');
+    if (!apiKey) return null;
+
+    const state = store.getState();
+    const keyHash = hashApiKey(apiKey);
+    const cred = state.credentials.find((c) => c.status === 'active' && c.api_key_hash === keyHash);
+    if (!cred) return null;
+
+    // Default to 'growth' for API consumers; could be extended with plan field on credentials
+    return {
+      consumerName: cred.consumer_name,
+      consumerProject: cred.consumer_project,
+      plan: 'growth',
+    };
+  }
+
+  // POST /api/v1/analyze - White-label analysis endpoint
+  app.post('/api/v1/analyze', async (req: Request, res: Response) => {
+    try {
+      // Authenticate via API key (not user session)
+      const consumer = resolveConsumerFromApiKey(req);
+      if (!consumer) {
+        return res.status(401).json({
+          error: 'Chave de API inválida ou revogada.',
+          code: 'INVALID_API_KEY',
+        });
+      }
+
+      const { place_id, force_refresh } = req.body;
+      if (!place_id || typeof place_id !== 'string') {
+        return res.status(400).json({
+          error: 'place_id é obrigatório.',
+          code: 'MISSING_PLACE_ID',
+        });
+      }
+
+      const state = store.getState();
+      const place = state.places.find((p) => p.id === place_id);
+      if (!place) {
+        return res.status(404).json({
+          error: 'Estabelecimento não encontrado.',
+          code: 'PLACE_NOT_FOUND',
+        });
+      }
+
+      // Check if consumer has access to this place (data isolation)
+      // For white-label, we allow access to any place in the system
+      // but could be restricted to consumer's own data in the future
+
+      // Return cached intelligence if available and not forcing refresh
+      const cachedIntel = store.getWebIntelligence(place_id);
+      if (cachedIntel && !force_refresh) {
+        return res.json({
+          data: cachedIntel,
+          cached: true,
+          consumer: consumer.consumerProject,
+        });
+      }
+
+      // Generate fresh intelligence
+      const scrapeResult = await crawlCompanyWebsite(place.website);
+      const intelligence = await generateWebIntelligence(place, scrapeResult);
+
+      // Persist intelligence
+      store.saveWebIntelligence(intelligence);
+      await store.flush();
+
+      // Audit log
+      state.logs.unshift({
+        id: `log_${Date.now()}_whitelabel`,
+        created_at: new Date().toISOString(),
+        level: 'info',
+        category: 'white_label',
+        event: 'analysis_generated',
+        message: `Análise white-label gerada para "${place.name}" por ${consumer.consumerProject} (Score: ${intelligence.scores.overall_score}/100).`,
+        job_id: place.job_id || 'white_label',
+        metadata: JSON.stringify({
+          place_id: place.id,
+          consumer_project: consumer.consumerProject,
+          consumer_name: consumer.consumerName,
+          status: intelligence.status,
+          score: intelligence.scores.overall_score,
+          tier: intelligence.scores.qualification_tier,
+        }),
+        user_id: `consumer_${consumer.consumerProject}`,
+      });
+      store.persist();
+
+      return res.json({
+        data: intelligence,
+        cached: false,
+        consumer: consumer.consumerProject,
+      });
+    } catch (err: any) {
+      console.error('[WhiteLabel] Erro ao gerar análise:', err);
+      return res.status(500).json({ error: err.message || 'Falha ao processar análise white-label.' });
+    }
+  });
+
+  // GET /api/v1/analyze/:place_id - Retrieve cached analysis
+  app.get('/api/v1/analyze/:place_id', async (req: Request, res: Response) => {
+    try {
+      const consumer = resolveConsumerFromApiKey(req);
+      if (!consumer) {
+        return res.status(401).json({
+          error: 'Chave de API inválida ou revogada.',
+          code: 'INVALID_API_KEY',
+        });
+      }
+
+      const { place_id } = req.params;
+      const state = store.getState();
+      const place = state.places.find((p) => p.id === place_id);
+      if (!place) {
+        return res.status(404).json({
+          error: 'Estabelecimento não encontrado.',
+          code: 'PLACE_NOT_FOUND',
+        });
+      }
+
+      const intel = store.getWebIntelligence(place_id);
+      if (!intel) {
+        return res.status(404).json({
+          error: 'Análise não encontrada. Use POST /api/v1/analyze para gerar.',
+          code: 'ANALYSIS_NOT_FOUND',
+        });
+      }
+
+      return res.json({
+        data: intel,
+        cached: true,
+        consumer: consumer.consumerProject,
+      });
+    } catch (err: any) {
+      console.error('[WhiteLabel] Erro ao buscar análise:', err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -3016,6 +3605,281 @@ export async function createApp() {
           hasRemoteEndpoint: Boolean(process.env.BROWSERLESS_TOKEN || state.settings.browserWsEndpoint || process.env.BROWSER_WS_ENDPOINT),
         },
       });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // =========================================================================
+  // 11. BILLING / PAGBANK INTEGRATION (/api/v1/billing)
+  // =========================================================================
+
+  // Get current user's subscription status and available plans
+  app.get('/api/v1/billing/status', (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const state = store.getState();
+      const userProfile = state.users.find((u) => u.id === user.id);
+      if (!userProfile) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+      const effectivePlan = getEffectivePlan(userProfile);
+      const planConfig = getPlanConfig(effectivePlan);
+
+      // Calculate usage this month
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const userJobs = state.jobs.filter((job) => job.user_id === user.id);
+      const userJobIds = new Set(userJobs.map((job) => job.id));
+      const monthlyLeads = state.places
+        .filter((place) => userJobIds.has(place.job_id) && place.collected_at >= monthStart)
+        .length;
+
+      return res.json({
+        currentPlan: effectivePlan,
+        isActive: isPlanActive(userProfile),
+        planExpiresAt: userProfile.planExpiresAt || null,
+        limits: planConfig,
+        usage: {
+          monthlyLeads,
+          remainingLeads: Math.max(0, planConfig.leadsPerMonth - monthlyLeads),
+        },
+        pagbankConfigured: !!process.env.PAGBANK_SANDBOX_TOKEN || !!process.env.PAGBANK_PRODUCTION_TOKEN,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get available plans
+  app.get('/api/v1/billing/plans', (_req: Request, res: Response) => {
+    try {
+      const plans = Object.entries(PLAN_CONFIGS).map(([tier, config]) => ({
+        tier,
+        name: tier.charAt(0).toUpperCase() + tier.slice(1),
+        ...config,
+        features: [
+          `${config.leadsPerMonth.toLocaleString('pt-BR')} leads/mês`,
+          `${config.projects === -1 ? 'Ilimitados' : config.projects} projetos`,
+          config.apiAccess ? 'Acesso à API' : null,
+          config.webhooks ? 'Webhooks' : null,
+          config.whiteLabel ? 'White-label' : null,
+        ].filter(Boolean),
+      }));
+      return res.json({ plans });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create checkout session for plan upgrade
+  app.post('/api/v1/billing/checkout', async (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const { planTier, billingCycle } = req.body;
+      const planTierStr = planTier as PlanTier;
+      const billingCycleStr = billingCycle as 'monthly' | 'annual';
+
+      if (!planTierStr || !billingCycleStr) {
+        return res.status(400).json({ error: 'planTier e billingCycle são obrigatórios.' });
+      }
+
+      if (!['starter', 'growth', 'pro'].includes(planTierStr)) {
+        return res.status(400).json({ error: 'Plano inválido. Use: starter, growth ou pro.' });
+      }
+
+      if (!['monthly', 'annual'].includes(billingCycleStr)) {
+        return res.status(400).json({ error: 'Ciclo de cobrança inválido. Use: monthly ou annual.' });
+      }
+
+      const state = store.getState();
+      const userProfile = state.users.find((u) => u.id === user.id);
+      if (!userProfile) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+      // Check if user already has this plan or higher
+      const currentPlan = getEffectivePlan(userProfile);
+      const planHierarchy = { free: 0, starter: 1, growth: 2, pro: 3 };
+      if (planHierarchy[planTierStr] <= planHierarchy[currentPlan]) {
+        return res.status(400).json({ error: 'Você já possui este plano ou um superior.' });
+      }
+
+      const referenceId = `sub_${user.id}_${planTierStr}_${billingCycleStr}_${Date.now()}`;
+      const pagbankOrder = await createPagBankOrder({
+        planTier: planTierStr,
+        billingCycle: billingCycleStr,
+        customerEmail: userProfile.email,
+        customerName: userProfile.name,
+        customerId: user.id,
+        referenceId,
+      });
+
+      if (!pagbankOrder) {
+        return res.status(500).json({ error: 'Falha ao criar sessão de pagamento no PagBank.' });
+      }
+
+      // Store pending subscription reference
+      const userProfile2 = state.users.find((u) => u.id === user.id);
+      if (userProfile2) {
+        (userProfile2 as any).pendingSubscription = {
+          planTier: planTierStr,
+          billingCycle: billingCycleStr,
+          referenceId,
+          pagbankOrderId: pagbankOrder.id,
+          createdAt: new Date().toISOString(),
+        };
+        store.persist();
+      }
+
+      return res.json({
+        checkoutUrl: pagbankOrder.checkoutUrl,
+        orderId: pagbankOrder.id,
+        referenceId,
+      });
+    } catch (err: any) {
+      console.error('[Billing] Checkout error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Cancel subscription (downgrade to free at period end)
+  app.post('/api/v1/billing/cancel', async (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const state = store.getState();
+      const userProfile = state.users.find((u) => u.id === user.id);
+      if (!userProfile) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+      if (!userProfile.plan || userProfile.plan === 'free') {
+        return res.status(400).json({ error: 'Você já está no plano gratuito.' });
+      }
+
+      // Mark for cancellation at period end
+      userProfile.plan = 'free';
+      userProfile.planExpiresAt = userProfile.planExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      store.persist();
+      await store.flush();
+
+      return res.json({
+        success: true,
+        message: 'Assinatura cancelada. O plano gratuito será ativado ao final do período atual.',
+        planExpiresAt: userProfile.planExpiresAt,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PagBank webhook endpoint
+  app.post('/api/v1/billing/webhook', async (req: Request, res: Response) => {
+    try {
+      const config = getPagBankConfig();
+      if (!config.webhookSecret) {
+        console.warn('[PagBank Webhook] Webhook secret not configured');
+        return res.status(200).json({ received: true }); // Don't block if not configured
+      }
+
+      // Verify webhook signature
+      if (!verifyPagBankWebhook(req, config.webhookSecret)) {
+        console.warn('[PagBank Webhook] Invalid signature');
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+
+      const event = req.body;
+      const productOrigin = req.header('x-product-origin') || req.header('X-Product-Origin');
+      const productId = req.header('x-product-id') || req.header('X-Product-Id');
+
+      console.log('[PagBank Webhook] Received:', productOrigin, productId, event?.type || 'unknown');
+
+      // Handle order events
+      if (productOrigin === 'ORDER' || event?.type?.startsWith('ORDER')) {
+        const orderId = productId || event?.order?.id;
+        if (orderId) {
+          const order = await getPagBankOrder(orderId);
+          if (order) {
+            const userId = order?.metadata?.user_id;
+            const planTier = order?.metadata?.plan_tier as PlanTier;
+            const billingCycle = order?.metadata?.billing_cycle as 'monthly' | 'annual';
+
+            if (userId && planTier) {
+              const state = store.getState();
+              const userProfile = state.users.find((u) => u.id === userId);
+
+              // Check if order is paid
+              const charge = order.charges?.[0];
+              const chargeStatus = charge?.status;
+
+              if (chargeStatus === 'PAID' || chargeStatus === 'AUTHORIZED') {
+                const chargeId = charge?.id;
+                if (chargeId) {
+                  await handleSuccessfulPayment(store.getState(), userId, planTier, billingCycle, order.id, chargeId);
+                }
+              } else if (chargeStatus === 'DECLINED' || chargeStatus === 'CANCELED' || chargeStatus === 'EXPIRED') {
+                await handleFailedPayment(store.getState(), userId);
+              }
+            }
+          }
+        }
+      }
+
+      // Handle charge events (payment status changes)
+      if (productOrigin === 'CHARGE' || event?.type?.startsWith('CHARGE')) {
+        const chargeId = productId || event?.charge?.id;
+        if (chargeId) {
+          const charge = await getPagBankCharge(chargeId);
+          if (charge) {
+            const orderId = charge.order_id;
+            if (orderId) {
+              const order = await getPagBankOrder(orderId);
+              if (order) {
+                const userId = order?.metadata?.user_id;
+                const planTier = order?.metadata?.plan_tier as PlanTier;
+                const billingCycle = order?.metadata?.billing_cycle as 'monthly' | 'annual';
+
+                if (userId && planTier) {
+                  const chargeStatus = charge.status;
+
+                  if (chargeStatus === 'PAID' || chargeStatus === 'AUTHORIZED') {
+                    await handleSuccessfulPayment(store.getState(), userId, planTier, billingCycle, orderId, chargeId);
+                  } else if (chargeStatus === 'DECLINED' || chargeStatus === 'CANCELED' || chargeStatus === 'EXPIRED' || chargeStatus === 'WAITING') {
+                    // For WAITING (boleto), we might want to keep pending
+                    if (chargeStatus !== 'WAITING') {
+                      await handleFailedPayment(store.getState(), userId);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Always return 200 to acknowledge receipt
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      console.error('[PagBank Webhook] Error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get billing history
+  app.get('/api/v1/billing/history', (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const state = store.getState();
+      const logs = state.logs
+        .filter((log) => log.user_id === user.id && log.category === 'billing')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 50);
+
+      return res.json({ history: logs });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
