@@ -257,9 +257,29 @@ export class ScraperSession extends DurableObject {
     }
 
     // Converter https:// para wss:// para o WebSocket CDP
-    const cdpWsUrl = wsEndpoint.replace(/^https:/, 'wss:').replace(/\/$/, '');
-    console.info(`[Scraper DO] Conectando ao CDP: ${cdpWsUrl}`);
+    const cdpWsBaseUrl = wsEndpoint.replace(/^https:/, 'wss:').replace(/\/$/, '');
+    console.info(`[Scraper DO] Conectando ao CDP: ${cdpWsBaseUrl}`);
 
+    // 1. Obter o webSocketDebuggerUrl do Chrome via HTTP (através do túnel)
+    let webSocketDebuggerUrl: string;
+    try {
+      const versionResp = await fetch(`${wsEndpoint.replace(/^wss:/, 'https:')}/json/version`);
+      if (!versionResp.ok) {
+        throw new Error(`Falha ao obter versão do Chrome: HTTP ${versionResp.status}`);
+      }
+      const versionData = await versionResp.json() as { webSocketDebuggerUrl?: string };
+      if (!versionData.webSocketDebuggerUrl) {
+        throw new Error('Chrome não retornou webSocketDebuggerUrl.');
+      }
+      webSocketDebuggerUrl = versionData.webSocketDebuggerUrl;
+      console.info(`[Scraper DO] WebSocket debugger URL: ${webSocketDebuggerUrl}`);
+    } catch (err: any) {
+      await this.updateJob(jobId, 'failed', `Não foi obter WebSocket debugger URL: ${err.message}`, 0, 0, 0);
+      return;
+    }
+
+    // 2. Converter para wss:// se necessário e conectar
+    const cdpWsUrl = webSocketDebuggerUrl.replace(/^ws:/, 'wss:');
     let ws: WebSocket;
     try {
       ws = new WebSocket(cdpWsUrl);
@@ -615,6 +635,23 @@ export default {
           source: job.source,
         });
         if (dbError) return error(dbError.message, 500);
+
+        // Se a origem é a extensão do navegador, não inicia scraping remoto.
+        // A extensão executa a coleta no navegador do usuário e envia via
+        // POST /api/v1/scrape/collect. O frontend faz polling do status.
+        if (job.source === 'browser_extension') {
+          await db.from('scrape_jobs').update({
+            status: 'running',
+            status_message: 'Aguardando inicialização da extensão...',
+            current_step: 'Pronto para coleta via extensão.',
+          }).eq('id', job.id);
+          return json({
+            jobId: job.id,
+            id: job.id,
+            status: 'running',
+            message: 'Job criado. Inicie a coleta pela extensão do navegador.',
+          }, 201);
+        }
 
         // Executar scraping real via Durable Object ScraperSession (CDP direto)
         try {
