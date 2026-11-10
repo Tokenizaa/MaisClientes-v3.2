@@ -1,0 +1,11 @@
+name = "maisclientes-api"
+main = "src/worker.ts"
+compatibility_date = "2026-11-10"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_NAME = "maisclientes"
+
+[env.production]
+name = "maisclientes-api"
+compatibility_date = "2026-11-10"
