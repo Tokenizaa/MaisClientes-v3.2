@@ -972,7 +972,7 @@ export default {
             rating: place.rating || '',
             review_count: place.review_count || '',
             city: place.city || String(body.location || '').split(',')[0].trim(),
-            state: place.state || (String(body.location || '').match(/(?:,\\s*|\\s+)([A-Z]{2})$/i) || [])[1] || '',
+            state: place.state || (String(body.location || '').match(/(?:,\s*|\s+)([A-Z]{2})$/i) || [])[1] || '',
             collected_at: now,
             source_url: place.source_url || '',
             maps_url: place.maps_url || '',
