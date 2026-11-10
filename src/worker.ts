@@ -895,12 +895,13 @@ export default {
         let authRequest = request;
         const contentType = request.headers.get('content-type') || '';
         if (contentType.includes('application/x-www-form-urlencoded')) {
+          const requestForAuth = request.clone();
           const form = await request.formData();
           const token = String(form.get('token') || '');
           const payload = String(form.get('payload') || '{}');
           const headers = new Headers(request.headers);
           if (token) headers.set('Authorization', `Bearer ${token}`);
-          authRequest = new Request(request, { headers });
+          authRequest = new Request(requestForAuth, { headers });
           body = JSON.parse(payload);
         } else {
           body = await readBody(request);
