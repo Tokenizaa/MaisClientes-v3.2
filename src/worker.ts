@@ -927,7 +927,6 @@ export default {
             maps_url?: string;
           }>;
         };
-        if (!body.jobId) return error('jobId é obrigatório.', 400);
         if (!Array.isArray(body.places)) return error('places deve ser uma lista.', 400);
 
         const db = getDb(env);
