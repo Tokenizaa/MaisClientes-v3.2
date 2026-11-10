@@ -18,26 +18,6 @@ function json(data: unknown, status = 200): Response {
 	return Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-async function digest(value: string): Promise<Uint8Array> {
-	return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-}
-
-async function equalSecret(a: string, b: string): Promise<boolean> {
-	const [left, right] = await Promise.all([digest(a), digest(b)]);
-	let diff = left.length ^ right.length;
-	for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-		diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
-	}
-	return diff === 0;
-}
-
-async function authorized(request: Request, env: Env): Promise<boolean> {
-	const supplied = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-	if (!supplied || supplied.length < 24) return false;
-	const configured = (env.BROWSER_SERVICE_API_KEYS ?? "").split(",").map((key) => key.trim()).filter(Boolean);
-	for (const key of configured) if (await equalSecret(supplied, key)) return true;
-	return false;
-}
 
 function cloudflareUrl(env: Env, path: string): string {
 	const base = env.BROWSER_RUN_API_BASE || "https://api.cloudflare.com/client/v4";
@@ -120,11 +100,6 @@ export default {
 		// Health check - sem autenticação
 		if (request.method === "GET" && url.pathname === "/health") {
 			return json({ status: "ok", service: "nettos-browser-service", provider: "cloudflare-browser-run" });
-		}
-
-		// Autenticação requerida para rotas da API
-		if (!(await authorized(request, env))) {
-			return json({ error: "Unauthorized" }, 401);
 		}
 
 		// Criar sessão

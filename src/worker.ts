@@ -10,7 +10,6 @@ export interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_ANON_KEY: string;
   BROWSER_WS_ENDPOINT?: string;
-  BROWSER_SERVICE_API_KEY?: string;
   MAPSCRAPE_API_KEY?: string;
   SESSION_PROXY: DurableObjectNamespace;
 }
@@ -169,16 +168,19 @@ export class ScraperSession extends DurableObject {
 
       // Criar sessão no nettos-browser-service (HTTP, não WebSocket)
       const sessionUrl = new URL('/v1/sessions', this.env.BROWSER_WS_ENDPOINT.replace(/^wss:/, 'https:').replace(/\/$/, '')).toString();
-      const sessionHeaders: Record<string, string> = {};
-      if (this.env.BROWSER_SERVICE_API_KEY) {
-        sessionHeaders['Authorization'] = `Bearer ${this.env.BROWSER_SERVICE_API_KEY}`;
-      }
-      const sessionResp = await fetch(sessionUrl, { method: 'POST', headers: sessionHeaders });
+      const sessionResp = await fetch(sessionUrl, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepAliveMs: 60000 })
+      });
+      const sessionBody = await sessionResp.text();
+      console.info(`[Scraper DO] Session response: ${sessionResp.status} ${sessionBody.slice(0,200)}`);
       if (!sessionResp.ok) {
-        await this.updateJob(body.jobId, 'failed', 'Falha ao criar sessão de navegador.', 0, 0, 0);
-        return json({ error: 'Falha ao criar sessão.' }, 502);
+        await this.updateJob(body.jobId, 'failed', `Falha ao criar sessão: HTTP ${sessionResp.status}`, 0, 0, 0);
+        return json({ error: `Falha ao criar sessão: HTTP ${sessionResp.status}` }, 502);
       }
-      const session = await sessionResp.json();
+      let session: any;
+      try { session = JSON.parse(sessionBody); } catch { session = {}; }
       if (!session.sessionId) {
         await this.updateJob(body.jobId, 'failed', 'Sessão inválida.', 0, 0, 0);
         return json({ error: 'Sessão inválida.' }, 502);
