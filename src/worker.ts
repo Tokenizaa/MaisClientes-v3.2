@@ -10,6 +10,7 @@ export interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_ANON_KEY: string;
   BROWSER_WS_ENDPOINT?: string;
+  BROWSER_SERVICE_URL?: string;
   MAPSCRAPE_API_KEY?: string;
   SESSION_PROXY: DurableObjectNamespace;
 }
@@ -462,21 +463,97 @@ export default {
         });
         if (dbError) return error(dbError.message, 500);
 
-        // Iniciar Durable Object para execução real do scraping
-        const id = env.SESSION_PROXY.idFromName(jobId);
-        const stub = env.SESSION_PROXY.get(id);
-        ctx.waitUntil(stub.fetch('https://scraper.internal/start', {
-          method: 'POST',
-          body: JSON.stringify({
-            jobId,
-            userId: auth.user.id,
-            segment: body.segment,
-            location: body.location,
-            limit: numLimit,
-          }),
-        }));
+        // Executar scraping real via navegador Cloudflare (nettos-browser-service)
+        const browserServiceUrl = env.BROWSER_SERVICE_URL;
+        if (!browserServiceUrl) {
+          await db.from('scrape_jobs').update({
+            status: 'failed',
+            status_message: 'Navegador Cloudflare não configurado. Defina BROWSER_SERVICE_URL.',
+            completed_at: new Date().toISOString(),
+          }).eq('id', job.id);
+          return error('Navegador Cloudflare não configurado.', 502);
+        }
 
-        return json({ jobId: job.id, id: job.id, status: job.status, message: job.status_message }, 201);
+        try {
+          // Etapa 1: iniciar sessão e navegar no Google Maps
+          const startResp = await fetch(`${browserServiceUrl.replace(/\/+$/, '')}/v1/scrape/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jobId,
+              segment: body.segment,
+              location: body.location,
+              limit: numLimit,
+            }),
+          });
+
+          if (!startResp.ok) {
+            const errText = await startResp.text();
+            await db.from('scrape_jobs').update({
+              status: 'failed',
+              status_message: `Falha ao iniciar scraping: ${errText.slice(0,200)}`,
+              completed_at: new Date().toISOString(),
+            }).eq('id', job.id);
+            return error(`Falha ao iniciar scraping: ${errText.slice(0,200)}`, 502);
+          }
+
+          const startResult = await startResp.json();
+
+          // Etapa 2: extrair dados (o navegador já carregou a página no start)
+          const extractResp = await fetch(`${browserServiceUrl.replace(/\/+$/, '')}/v1/scrape/extract`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId }),
+          });
+
+          if (!extractResp.ok) {
+            const errText = await extractResp.text();
+            await db.from('scrape_jobs').update({
+              status: 'failed',
+              status_message: `Falha ao extrair dados: ${errText.slice(0,200)}`,
+              completed_at: new Date().toISOString(),
+            }).eq('id', job.id);
+            return error(`Falha ao extrair dados: ${errText.slice(0,200)}`, 502);
+          }
+
+          const scrapeResult = await extractResp.json();
+          const places = scrapeResult.places || [];
+
+          // Salvar lugares no banco de dados
+          for (const place of places) {
+            await db.from('places').insert({
+              id: place.id,
+              job_id: place.job_id || jobId,
+              name: place.name,
+              category: place.category,
+              address: place.address,
+              phone: place.phone,
+              website: place.website,
+              rating: place.rating,
+              review_count: place.review_count,
+              city: place.city,
+              state: place.state,
+              collected_at: place.collected_at || now,
+            });
+          }
+
+          // Atualizar job como concluído
+          await db.from('scrape_jobs').update({
+            status: 'completed',
+            status_message: `Coleta concluída: ${places.length} estabelecimento(s) encontrado(s).`,
+            total_collected: places.length,
+            completed_at: new Date().toISOString(),
+          }).eq('id', job.id);
+
+          return json({ jobId: job.id, id: job.id, status: 'completed', message: `Coleta concluída: ${places.length} estabelecimento(s).`, places }, 201);
+        } catch (err: any) {
+          await db.from('scrape_jobs').update({
+            status: 'failed',
+            status_message: err instanceof Error ? err.message : 'Erro desconhecido.',
+            completed_at: new Date().toISOString(),
+          }).eq('id', job.id);
+          return error(err instanceof Error ? err.message : String(err), 500);
+        }
       } catch (err: any) {
         return error(err.message, 500);
       }
