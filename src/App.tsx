@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import { Sidebar, ScreenTab } from './components/Sidebar';
 import { SearchScreen } from './components/SearchScreen';
+import { ClientSideScrapeScreen } from './components/ClientSideScrapeScreen';
 import { ResultsScreen } from './components/ResultsScreen';
 import { ExportScreen } from './components/ExportScreen';
 import { HistoryScreen } from './components/HistoryScreen';
@@ -646,6 +647,10 @@ export default function App() {
                 />
               }
             />
+          )}
+
+          {currentTab === 'client-scrape' && (
+            <ClientSideScrapeScreen onGoToResults={() => setCurrentTab('results')} />
           )}
 
           {currentTab === 'results' && (

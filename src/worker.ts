@@ -658,6 +658,80 @@ export default {
       });
     }
 
+    // Coleta client-side: recebe lugares coletados pelo navegador do usuário
+    if (path === '/api/v1/scrape/collect' && method === 'POST') {
+      const auth = requireAuth(request, env);
+      if (auth instanceof Response) return auth;
+      try {
+        const body = (await readBody(request)) as {
+          jobId?: string;
+          segment?: string;
+          location?: string;
+          places?: Array<{
+            id?: string;
+            name: string;
+            category?: string;
+            address?: string;
+            phone?: string;
+            website?: string;
+            rating?: string;
+            review_count?: string;
+            city?: string;
+            state?: string;
+            source_url?: string;
+            maps_url?: string;
+          }>;
+        };
+        if (!body.jobId) return error('jobId é obrigatório.', 400);
+        if (!body.places || !Array.isArray(body.places) || body.places.length === 0) {
+          return error('Nenhum lugar para coletar.', 400);
+        }
+
+        const db = getDb(env);
+        const now = new Date().toISOString();
+        const saved: any[] = [];
+
+        for (const place of body.places) {
+          const placeId = place.id || `place_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const { error: insertError } = await db.from('places').insert({
+            id: placeId,
+            job_id: body.jobId,
+            user_id: auth.user.id,
+            segment: body.segment || '',
+            name: place.name || 'Estabelecimento',
+            category: place.category || body.segment || '',
+            address: place.address || '',
+            phone: place.phone || '',
+            website: place.website || '',
+            rating: place.rating || '',
+            review_count: place.review_count || '',
+            city: place.city || '',
+            state: place.state || '',
+            collected_at: now,
+            source_url: place.source_url || '',
+            maps_url: place.maps_url || '',
+          });
+          if (insertError) continue;
+          saved.push({ id: placeId, ...place });
+        }
+
+        // Atualizar job com total coletado
+        await db.from('scrape_jobs').update({
+          total_collected: saved.length,
+          status_message: `Coleta client-side concluída: ${saved.length} estabelecimento(s) salvo(s).`,
+          current_step: 'Concluído',
+        }).eq('id', body.jobId);
+
+        return json({
+          jobId: body.jobId,
+          collected: saved.length,
+          places: saved,
+        }, 201);
+      } catch (err: any) {
+        return error(err instanceof Error ? err.message : 'Erro ao coletar lugares.', 500);
+      }
+    }
+
     return json({ error: 'Rota não encontrada.' }, 404);
   },
 };
