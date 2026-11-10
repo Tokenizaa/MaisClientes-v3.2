@@ -6,9 +6,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import { Sidebar, ScreenTab } from './components/Sidebar';
-import { SearchScreen } from './components/SearchScreen';
 import { ClientSideScrapeScreen } from './components/ClientSideScrapeScreen';
-import { ExtensionScrapeScreen } from './components/ExtensionScrapeScreen';
 import { ResultsScreen } from './components/ResultsScreen';
 import { ExportScreen } from './components/ExportScreen';
 import { HistoryScreen } from './components/HistoryScreen';
@@ -611,51 +609,7 @@ export default function App() {
           {currentTab === 'credentials' && <CredentialsScreen />}
 
           {currentTab === 'search' && (
-            <SearchScreen
-              currentJob={currentJob}
-              isScraping={isScraping}
-              apiReady={hasApiKey}
-              onStartScrape={handleStartScrape}
-              onStopScrape={handleStopScrape}
-              onGoToResults={() => setCurrentTab('results')}
-              initialProjectName={preselectedProject}
-              initialCategoryName={preselectedCategory}
-              scrapeResults={liveScrapePlaces}
-              liveResults={
-                <ResultsScreen
-                  compactCardsOnly
-                  places={liveScrapePlaces}
-                  totalPlaces={liveScrapePlaces.length}
-                  jobs={jobs}
-                  selectedJobId={currentJob?.id}
-                  onSelectJobId={setSelectedJobId}
-                  selectedPlaceIds={selectedPlaceIds}
-                  onToggleSelectPlace={handleToggleSelectPlace}
-                  onToggleSelectAll={handleToggleSelectAll}
-                  onGoToExport={() => setCurrentTab('export')}
-                  searchQuery=""
-                  onSearchQueryChange={() => {}}
-                  selectedCategory=""
-                  onCategoryChange={() => {}}
-                  sortBy="collected_at"
-                  sortOrder="desc"
-                  onSortChange={() => {}}
-                  currentPage={1}
-                  pageSize={500}
-                  onPageChange={() => {}}
-                  onPageSizeChange={() => {}}
-                  isLoading={false}
-                />
-              }
-            />
-          )}
-
-          {currentTab === 'client-scrape' && (
             <ClientSideScrapeScreen onGoToResults={() => setCurrentTab('results')} />
-          )}
-
-          {currentTab === 'extension' && (
-            <ExtensionScrapeScreen onGoToResults={() => setCurrentTab('results')} />
           )}
 
           {currentTab === 'results' && (
