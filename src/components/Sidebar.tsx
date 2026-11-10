@@ -16,12 +16,10 @@ import {
   Kanban,
   Shield,
   CreditCard,
-  Monitor,
-  Puzzle,
 } from 'lucide-react';
 import { ScrapeJob } from '../shared/types';
 
-export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban' | 'privacy' | 'billing' | 'client-scrape' | 'extension';
+export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban' | 'privacy' | 'billing';
 
 interface SidebarProps {
   currentTab: ScreenTab;
@@ -65,18 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: isScrapingActive ? 'Varrendo' : undefined,
       badgeVariant: 'active',
       description: 'Pesquisar no Google Maps',
-    },
-    {
-      id: 'client-scrape' as ScreenTab,
-      label: 'Coleta no Seu Navegador',
-      icon: Monitor,
-      description: 'Coleta client-side via Google Maps',
-    },
-    {
-      id: 'extension' as ScreenTab,
-      label: 'Extensão do Navegador',
-      icon: Puzzle,
-      description: 'Coleta automatizada via extensão Chrome',
     },
     {
       id: 'results' as ScreenTab,
