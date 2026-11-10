@@ -34,7 +34,7 @@ interface ScrapeJob {
   completed_at?: string;
   project_id?: string;
   category_id?: string;
-  source?: 'remote' | 'browser_extension' | 'browser_client' | 'browser_client';
+  source?: 'remote' | 'browser_extension' | 'browser_client';
 }
 
 interface PlaceRecord {
@@ -589,7 +589,7 @@ export default {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
       try {
-        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string; source?: 'remote' | 'browser_extension' };
+        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string; source?: 'remote' | 'browser_extension' | 'browser_client' };
         if (!body.segment || !body.location) return error('Segmento e Localização são obrigatórios.', 400);
 
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -930,18 +930,29 @@ export default {
         if (!Array.isArray(body.places)) return error('places deve ser uma lista.', 400);
 
         const db = getDb(env);
-        const { data: job, error: jobError } = await db
+        const jobQuery = db
           .from('scrape_jobs')
-          .select('id,status,source')
-          .eq('id', body.jobId)
-          .eq('user_id', auth.user.id)
-          .maybeSingle();
+          .select('id,status,source,segment,location,limit_requested')
+          .eq('user_id', auth.user.id);
+        const { data: job, error: jobError } = body.jobId
+          ? await jobQuery.eq('id', body.jobId).maybeSingle()
+          : await jobQuery
+              .eq('source', 'browser_client')
+              .eq('status', 'running')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
         if (jobError) return error(jobError.message, 500);
-        if (!job) return error('Coleta não encontrada para este usuário.', 404);
+        if (!job) return error('Não existe uma coleta ativa para este usuário.', 404);
         if (job.source !== 'browser_extension' && job.source !== 'browser_client') {
           return error('Esta coleta não aceita resultados enviados pelo navegador.', 409);
         }
         if (job.status !== 'running') return error('Esta coleta não está mais ativa.', 409);
+
+        body.jobId = job.id;
+        body.segment = job.segment;
+        body.location = job.location;
+        body.places = body.places.slice(0, Math.max(0, Number(job.limit_requested) || 100));
 
         const now = new Date().toISOString();
         const saved: any[] = [];
