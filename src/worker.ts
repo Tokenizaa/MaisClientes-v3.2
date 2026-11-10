@@ -584,7 +584,7 @@ export default {
       }
     }
 
-    // Create job - dispara Durable Object para execução real
+    // Create job - usa a origem solicitada (navegador do usuário ou engine remoto).
     if (path === '/api/v1/jobs' && method === 'POST') {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
@@ -636,20 +636,19 @@ export default {
         });
         if (dbError) return error(dbError.message, 500);
 
-        // Se a origem é a extensão do navegador, não inicia scraping remoto.
-        // A extensão executa a coleta no navegador do usuário e envia via
-        // POST /api/v1/scrape/collect. O frontend faz polling do status.
+        // Coletas executadas no navegador do usuário não iniciam sessão remota.
+        // O navegador envia os resultados via POST /api/v1/scrape/collect.
         if (job.source === 'browser_extension') {
           await db.from('scrape_jobs').update({
             status: 'running',
-            status_message: 'Aguardando inicialização da extensão...',
-            current_step: 'Pronto para coleta via extensão.',
+            status_message: 'Aguardando coleta no navegador do usuário...',
+            current_step: 'Pronto para receber resultados do navegador.', 
           }).eq('id', job.id);
           return json({
             jobId: job.id,
             id: job.id,
             status: 'running',
-            message: 'Job criado. Inicie a coleta pela extensão do navegador.',
+            message: 'Job criado. Inicie a coleta no navegador do usuário.',
           }, 201);
         }
 
@@ -771,6 +770,29 @@ export default {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
       try {
+        const db = getDb(env);
+        const { data: job, error: jobError } = await db
+          .from('scrape_jobs')
+          .select('id,source')
+          .eq('id', stopMatch[1])
+          .eq('user_id', auth.user.id)
+          .maybeSingle();
+        if (jobError) return error(jobError.message, 500);
+        if (!job) return error('Coleta não encontrada.', 404);
+
+        if (job.source === 'browser_extension') {
+          const stoppedAt = new Date().toISOString();
+          const { error: updateError } = await db.from('scrape_jobs').update({
+            status: 'stopped',
+            status_message: 'Coleta interrompida pelo usuário.',
+            current_step: 'Interrompida',
+            heartbeat_at: stoppedAt,
+            completed_at: stoppedAt,
+          }).eq('id', job.id).eq('user_id', auth.user.id);
+          if (updateError) return error(updateError.message, 500);
+          return json({ success: true });
+        }
+
         const id = env.SESSION_PROXY.idFromName(stopMatch[1]);
         const stub = env.SESSION_PROXY.get(id);
         await stub.fetch('https://scraper.internal/stop', { method: 'POST' });
@@ -894,6 +916,16 @@ export default {
         }
 
         const db = getDb(env);
+        const { data: job, error: jobError } = await db
+          .from('scrape_jobs')
+          .select('id,status,source')
+          .eq('id', body.jobId)
+          .eq('user_id', auth.user.id)
+          .maybeSingle();
+        if (jobError) return error(jobError.message, 500);
+        if (!job) return error('Coleta não encontrada para este usuário.', 404);
+        if (job.status !== 'running') return error('Esta coleta não está mais ativa.', 409);
+
         const now = new Date().toISOString();
         const saved: any[] = [];
 
@@ -923,10 +955,14 @@ export default {
 
         // Atualizar job com total coletado
         await db.from('scrape_jobs').update({
+          total_found: saved.length,
           total_collected: saved.length,
-          status_message: `Coleta client-side concluída: ${saved.length} estabelecimento(s) salvo(s).`,
+          status: 'completed',
+          status_message: `Coleta no navegador concluída: ${saved.length} estabelecimento(s) salvo(s).`,
           current_step: 'Concluído',
-        }).eq('id', body.jobId);
+          heartbeat_at: now,
+          completed_at: now,
+        }).eq('id', body.jobId).eq('user_id', auth.user.id);
 
         return json({
           jobId: body.jobId,
