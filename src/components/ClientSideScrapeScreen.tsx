@@ -44,6 +44,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
   useEffect(() => {
     if (!jobId) return;
     let active = true;
+    let interval: number | undefined;
 
     const refreshJob = async () => {
       try {
@@ -55,6 +56,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
 
         setCollectedCount(Number(job.total_collected || 0));
         if (['completed', 'failed', 'stopped'].includes(job.status)) {
+          if (interval !== undefined) window.clearInterval(interval);
           setIsCollecting(false);
           setMessage(job.status_message || (
             job.status === 'completed' ? 'Coleta concluída.' :
@@ -71,7 +73,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
     };
 
     void refreshJob();
-    const interval = window.setInterval(() => void refreshJob(), 2000);
+    interval = window.setInterval(() => void refreshJob(), 2000);
     return () => {
       active = false;
       window.clearInterval(interval);
