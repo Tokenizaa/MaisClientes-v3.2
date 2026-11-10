@@ -116,6 +116,54 @@ async function sha256(input: string): Promise<string> {
 }
 
 // ============================================================================
+// CDP Session: conexão WebSocket ao navegador remoto via CDP
+// ============================================================================
+
+interface CDPResponse {
+  id: number;
+  result?: unknown;
+  error?: unknown;
+}
+
+class CDPSession {
+  private ws: WebSocket;
+  private pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: unknown) => void }>;
+  private nextId = 1;
+
+  constructor(ws: WebSocket) {
+    this.ws = ws;
+    ws.addEventListener("message", (event) => {
+      const text = event.data as string;
+      try {
+        const parsed = JSON.parse(text) as CDPResponse;
+        if (parsed.id !== undefined && this.pending.has(parsed.id)) {
+          const { resolve, reject } = this.pending.get(parsed.id)!;
+          this.pending.delete(parsed.id);
+          if (parsed.error) reject(parsed.error);
+          else resolve(parsed.result);
+        }
+      } catch { /* ignore non-JSON frames */ }
+    });
+    ws.addEventListener("close", () => {
+      for (const [, { reject }] of this.pending) reject(new Error("WebSocket closed"));
+      this.pending.clear();
+    });
+    ws.addEventListener("error", () => {
+      for (const [, { reject }] of this.pending) reject(new Error("WebSocket error"));
+      this.pending.clear();
+    });
+  }
+
+  send(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+}
+
+// ============================================================================
 // Durable Object: ScraperSession
 // Executa o loop de scraping real mantendo sessão do navegador aberta
 // ============================================================================
@@ -157,40 +205,23 @@ export class ScraperSession extends DurableObject {
       segment: string;
       location: string;
       limit: number;
+      browserWsEndpoint?: string;
     };
+
+    const browserWsEndpoint = body.browserWsEndpoint || this.env.BROWSER_WS_ENDPOINT || '';
 
     await this.updateJob(body.jobId, 'running', 'Conectando ao navegador...', 0, 0, 0);
 
     try {
-      if (!this.env.BROWSER_WS_ENDPOINT) {
+      if (!browserWsEndpoint) {
         await this.updateJob(body.jobId, 'failed', 'Navegador remoto não configurado.', 0, 0, 0);
         return json({ error: 'BROWSER_WS_ENDPOINT não configurado.' }, 500);
       }
 
-      // Criar sessão no nettos-browser-service (HTTP, não WebSocket)
-      const sessionUrl = new URL('/v1/sessions', this.env.BROWSER_WS_ENDPOINT.replace(/^wss:/, 'https:').replace(/\/$/, '')).toString();
-      const sessionResp = await fetch(sessionUrl, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keepAliveMs: 60000 })
-      });
-      const sessionBody = await sessionResp.text();
-      console.info(`[Scraper DO] Session response: ${sessionResp.status} ${sessionBody.slice(0,200)}`);
-      if (!sessionResp.ok) {
-        await this.updateJob(body.jobId, 'failed', `Falha ao criar sessão: HTTP ${sessionResp.status}`, 0, 0, 0);
-        return json({ error: `Falha ao criar sessão: HTTP ${sessionResp.status}` }, 502);
-      }
-      let session: any;
-      try { session = JSON.parse(sessionBody); } catch { session = {}; }
-      if (!session.sessionId) {
-        await this.updateJob(body.jobId, 'failed', 'Sessão inválida.', 0, 0, 0);
-        return json({ error: 'Sessão inválida.' }, 502);
-      }
-
       await this.updateJob(body.jobId, 'running', 'Navegador conectado. Coletando resultados...', 0, 0, 0);
 
-      // Executar loop de scraping
-      await this.runScrapingLoop(body.jobId, body.segment, body.location, body.limit);
+      // Executar loop de scraping real via CDP
+      await this.runScrapingLoop(body.jobId, body.segment, body.location, body.limit, browserWsEndpoint);
 
       return json({ jobId: body.jobId, status: 'running', message: 'Scraping iniciado.' });
     } catch (err: any) {
@@ -213,54 +244,173 @@ export class ScraperSession extends DurableObject {
     jobId: string,
     segment: string,
     location: string,
-    limit: number
+    limit: number,
+    browserWsEndpoint: string = ''
   ): Promise<void> {
     console.info(`[Scraper DO] Job ${jobId}: ${segment} em ${location}, limite ${limit}`);
 
-    try {
-      const searchQuery = `${segment} ${location}`;
+    const wsEndpoint = browserWsEndpoint || this.env.BROWSER_WS_ENDPOINT;
+    if (!wsEndpoint) {
+      await this.updateJob(jobId, 'failed', 'BROWSER_WS_ENDPOINT não configurado.', 0, 0, 0);
+      return;
+    }
 
-      for (let i = 0; i < Math.min(limit, 10); i++) {
+    // Converter https:// para wss:// para o WebSocket CDP
+    const cdpWsUrl = wsEndpoint.replace(/^https:/, 'wss:').replace(/\/$/, '');
+    console.info(`[Scraper DO] Conectando ao CDP: ${cdpWsUrl}`);
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(cdpWsUrl);
+    } catch (err: any) {
+      await this.updateJob(jobId, 'failed', `Não foi possível criar WebSocket: ${err.message}`, 0, 0, 0);
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener('open', () => resolve());
+      ws.addEventListener('error', (err) => reject(err));
+      ws.addEventListener('close', () => reject(new Error('WebSocket fechado antes de abrir')));
+    });
+
+    const cdp = new CDPSession(ws);
+
+    try {
+      // 1. Criar nova aba/target
+      await cdp.send('Target.createTarget', { url: 'about:blank' });
+      await new Promise((r) => setTimeout(r, 1000));
+
+      // 2. Navegar para o Google Maps
+      const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(`${segment} ${location}`)}`;
+      await cdp.send('Page.navigate', { url: searchUrl });
+      await new Promise((r) => setTimeout(r, 8000));
+
+      const collected: PlaceRecord[] = [];
+      const seenUrls = new Set<string>();
+      const now = new Date().toISOString();
+
+      // Loop de extração com rolagem
+      for (let round = 0; round < Math.ceil(limit / 10); round++) {
         const stopRequested = await this.ctx.storage.get('stopRequested');
         if (stopRequested) {
-          await this.updateJob(jobId, 'stopped', 'Coleta interrompida pelo usuário.', i, 0, 0);
+          await this.updateJob(jobId, 'stopped', 'Coleta interrompida pelo usuário.', collected.length, 0, 0);
           return;
         }
 
-        // Simular tempo de navegação e extração da ficha
-        await new Promise((r) => setTimeout(r, 800));
+        // Extrair links de resultados visíveis
+        const extractScript = `
+          (() => {
+            const results = [];
+            const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]'));
+            for (const link of links) {
+              const href = link.getAttribute('href') || '';
+              const parent = link.closest('[role="feed"]') || link.parentElement;
+              const containerText = parent ? parent.innerText : '';
+              const lines = containerText.split('\\n').filter(l => l.trim());
+              const name = lines[0] || link.textContent || 'Estabelecimento';
+              let phone = '';
+              let rating = '';
+              const phoneMatch = containerText.match(/(\\+?\\d[\\d\\s\\-]{7,}\\d)/);
+              if (phoneMatch) phone = phoneMatch[1].trim();
+              const ratingMatch = containerText.match(/(\\d[.,]\\d)/);
+              if (ratingMatch) rating = ratingMatch[1];
+              results.push({
+                name,
+                category: '${segment}',
+                address: '${location}, Brasil',
+                phone,
+                website: '',
+                rating,
+                review_count: '',
+                city: '${location.split(',')[0]}',
+                state: 'SP',
+                source_url: href,
+                maps_url: href,
+              });
+            }
+            return results;
+          })()
+        `;
 
-        const placeId = `place_${Date.now()}_${i}`;
-        const place: PlaceRecord = {
-          id: placeId,
-          job_id: jobId,
-          name: `${segment} ${i + 1}`,
-          category: segment,
-          address: `${location}, Brasil`,
-          phone: '',
-          website: '',
-          rating: '4.5',
-          review_count: '100',
-          city: location.split(',')[0],
-          state: 'SP',
-          collected_at: new Date().toISOString(),
-        };
+        const extractResult = await cdp.send('Runtime.evaluate', {
+          expression: extractScript,
+          returnByValue: true,
+        });
 
-        await this.savePlace(place);
-        await this.updateJob(
-          jobId,
-          'running',
-          `Extraindo ${i + 1} de ${limit}...`,
-          i + 1,
-          0,
-          0
-        );
+        const placesFromPage: any[] = [];
+        if (extractResult && typeof extractResult === 'object' && 'result' in extractResult) {
+          const value = (extractResult as any).result?.value;
+          if (Array.isArray(value)) {
+            for (const p of value) {
+              if (seenUrls.has(p.maps_url || p.source_url)) continue;
+              seenUrls.add(p.maps_url || p.source_url);
+              placesFromPage.push(p);
+              if (placesFromPage.length >= limit - collected.length) break;
+            }
+          }
+        }
+
+        // Salvar lugares desta página
+        for (const p of placesFromPage) {
+          const place: PlaceRecord = {
+            id: `place_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            job_id: jobId,
+            name: p.name || 'Estabelecimento',
+            category: p.category || segment,
+            address: p.address || `${location}, Brasil`,
+            phone: p.phone || '',
+            website: p.website || '',
+            rating: p.rating || '',
+            review_count: p.review_count || '',
+            city: p.city || location.split(',')[0],
+            state: p.state || 'SP',
+            collected_at: now,
+            source_url: p.source_url || '',
+            maps_url: p.maps_url || '',
+          };
+          await this.savePlace(place);
+          collected.push(place);
+
+          await this.updateJob(
+            jobId,
+            'running',
+            `Extraindo ${collected.length} de ${limit}...`,
+            collected.length,
+            0,
+            0
+          );
+
+          if (collected.length >= limit) break;
+        }
+
+        if (collected.length >= limit) break;
+
+        // Rolar para carregar mais resultados
+        try {
+          await cdp.send('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: 500,
+            y: 500,
+            deltaX: 0,
+            deltaY: 1000,
+          });
+        } catch {}
+        await new Promise((r) => setTimeout(r, 4000));
       }
 
-      await this.updateJob(jobId, 'completed', 'Coleta concluída.', Math.min(limit, 10), 0, 0);
+      await this.updateJob(
+        jobId,
+        'completed',
+        `Coleta concluída: ${collected.length} estabelecimento(s).`,
+        collected.length,
+        0,
+        0
+      );
     } catch (err: any) {
       console.error(`[Scraper DO] Erro no job ${jobId}:`, err);
       await this.updateJob(jobId, 'failed', err.message || 'Erro desconhecido.', 0, 0, 0);
+    } finally {
+      try { ws.close(); } catch {}
     }
   }
 
@@ -463,24 +613,17 @@ export default {
         });
         if (dbError) return error(dbError.message, 500);
 
-        // Executar scraping real via navegador Cloudflare (nettos-browser-service)
-        const browserServiceUrl = env.BROWSER_SERVICE_URL;
-        if (!browserServiceUrl) {
-          await db.from('scrape_jobs').update({
-            status: 'failed',
-            status_message: 'Navegador Cloudflare não configurado. Defina BROWSER_SERVICE_URL.',
-            completed_at: new Date().toISOString(),
-          }).eq('id', job.id);
-          return error('Navegador Cloudflare não configurado.', 502);
-        }
-
+        // Executar scraping real via Durable Object ScraperSession (CDP direto)
         try {
-          // Etapa 1: iniciar sessão e navegar no Google Maps
-          const startResp = await fetch(`${browserServiceUrl.replace(/\/+$/, '')}/v1/scrape/start`, {
+          const browserWsEndpoint = env.BROWSER_WS_ENDPOINT || '';
+          const doId = env.SESSION_PROXY.idFromName(job.id);
+          const doStub = env.SESSION_PROXY.get(doId);
+          const startResp = await doStub.fetch('https://scraper.internal/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              jobId,
+              jobId: job.id,
+              userId: job.user_id,
               segment: body.segment,
               location: body.location,
               limit: numLimit,
@@ -499,53 +642,43 @@ export default {
 
           const startResult = await startResp.json();
 
-          // Etapa 2: extrair dados (o navegador já carregou a página no start)
-          const extractResp = await fetch(`${browserServiceUrl.replace(/\/+$/, '')}/v1/scrape/extract`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jobId }),
-          });
-
-          if (!extractResp.ok) {
-            const errText = await extractResp.text();
-            await db.from('scrape_jobs').update({
-              status: 'failed',
-              status_message: `Falha ao extrair dados: ${errText.slice(0,200)}`,
-              completed_at: new Date().toISOString(),
-            }).eq('id', job.id);
-            return error(`Falha ao extrair dados: ${errText.slice(0,200)}`, 502);
-          }
-
-          const scrapeResult = await extractResp.json();
-          const places = scrapeResult.places || [];
-
-          // Salvar lugares no banco de dados
-          for (const place of places) {
-            await db.from('places').insert({
-              id: place.id,
-              job_id: place.job_id || jobId,
-              name: place.name,
-              category: place.category,
-              address: place.address,
-              phone: place.phone,
-              website: place.website,
-              rating: place.rating,
-              review_count: place.review_count,
-              city: place.city,
-              state: place.state,
-              collected_at: place.collected_at || now,
+          // Aguardar o scraping completar (polling de status)
+          let completed = false;
+          for (let poll = 0; poll < 60; poll++) {
+            await new Promise((r) => setTimeout(r, 5000));
+            const statusResp = await doStub.fetch('https://scraper.internal/status', {
+              method: 'GET',
             });
+            if (statusResp.ok) {
+              const statusData = await statusResp.json();
+              if (statusData.stopRequested) {
+                await db.from('scrape_jobs').update({
+                  status: 'stopped',
+                  status_message: 'Coleta interrompida.',
+                  completed_at: new Date().toISOString(),
+                }).eq('id', job.id);
+                return json({ jobId: job.id, id: job.id, status: 'stopped', message: 'Coleta interrompida pelo usuário.' }, 200);
+              }
+            }
+
+            // Verificar status no banco
+            const { data: jobStatus } = await db.from('scrape_jobs').select('status,total_collected,status_message').eq('id', job.id).single();
+            if (jobStatus && (jobStatus.status === 'completed' || jobStatus.status === 'failed' || jobStatus.status === 'stopped')) {
+              completed = true;
+              break;
+            }
           }
 
-          // Atualizar job como concluído
-          await db.from('scrape_jobs').update({
-            status: 'completed',
-            status_message: `Coleta concluída: ${places.length} estabelecimento(s) encontrado(s).`,
-            total_collected: places.length,
-            completed_at: new Date().toISOString(),
-          }).eq('id', job.id);
+          // Buscar lugares coletados
+          const { data: places } = await db.from('places').select('*').eq('job_id', job.id).order('collected_at', { ascending: false });
 
-          return json({ jobId: job.id, id: job.id, status: 'completed', message: `Coleta concluída: ${places.length} estabelecimento(s).`, places }, 201);
+          return json({
+            jobId: job.id,
+            id: job.id,
+            status: 'completed',
+            message: `Coleta concluída: ${places?.length || 0} estabelecimento(s).`,
+            places: places || [],
+          }, 201);
         } catch (err: any) {
           await db.from('scrape_jobs').update({
             status: 'failed',
@@ -554,9 +687,15 @@ export default {
           }).eq('id', job.id);
           return error(err instanceof Error ? err.message : String(err), 500);
         }
-      } catch (err: any) {
-        return error(err.message, 500);
-      }
+
+
+    } catch (err: any) {
+      await db.from('scrape_jobs').update({
+        status: 'failed',
+        status_message: err instanceof Error ? err.message : 'Erro desconhecido.',
+        completed_at: new Date().toISOString(),
+      }).eq('id', job.id);
+      return error(err instanceof Error ? err.message : String(err), 500);
     }
 
     // Stop job
@@ -733,5 +872,5 @@ export default {
     }
 
     return json({ error: 'Rota não encontrada.' }, 404);
-  },
-};
+  }
+}}

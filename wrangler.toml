@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 APP_NAME = "maisclientes"
+BROWSER_WS_ENDPOINT = "wss://designer-controlled-customs-cards.trycloudflare.com"
 
 [[durable_objects.bindings]]
 name = "SESSION_PROXY"
