@@ -136,7 +136,7 @@ export default {
 
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('users')
           .select('*')
           .eq('email', String(body.email).trim().toLowerCase())
@@ -171,7 +171,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('users')
           .select('*')
           .eq('id', auth.user.id)
@@ -198,7 +198,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('scrape_jobs')
           .select('*')
           .eq('user_id', auth.user.id)
@@ -242,7 +242,7 @@ export default {
         };
 
         const db = getDb(env);
-        const { error: dbError } = await db.schema('mapscrape').from('scrape_jobs').insert({
+        const { error: dbError } = await db.from('scrape_jobs').insert({
           id: job.id,
           user_id: job.user_id,
           segment: job.segment,
@@ -277,7 +277,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('scrape_jobs')
           .select('*')
           .eq('id', jobDetailMatch[1])
@@ -296,7 +296,7 @@ export default {
       if (auth instanceof Response) return auth;
       try {
         const db = getDb(env);
-        let query = db.schema('mapscrape').from('places').select('*').order('collected_at', { ascending: false });
+        let query = db.from('places').select('*').order('collected_at', { ascending: false });
         const jobId = url.searchParams.get('job_id');
         if (jobId) query = query.eq('job_id', jobId);
         const { data, error: dbError } = await query.limit(100);
@@ -314,7 +314,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('categories')
           .select('*')
           .order('name', { ascending: true });
@@ -332,7 +332,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          .schema('mapscrape')
+          
           .from('projects')
           .select('*')
           .order('name', { ascending: true });
@@ -426,7 +426,7 @@ async function updateJobStatus(
   try {
     const db = getDb(env);
     await db
-      .schema('mapscrape')
+      
       .from('scrape_jobs')
       .update({
         status,
