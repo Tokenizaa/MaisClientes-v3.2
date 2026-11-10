@@ -10,6 +10,8 @@ export interface Env {
 	MAX_SESSION_TTL_MS?: string;
 	SESSION_PROXY: DurableObjectNamespace;
 	ASSETS: Fetcher;
+	/** Backend Express origin (ex: https://<tunnel>.trycloudflare.com) para rotas /api/* */
+	BACKEND_URL?: string;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -61,6 +63,52 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
 		const isApiPath = url.pathname.startsWith("/v1/sessions") || url.pathname === "/health";
+
+		// Proxy de rotas /api/* para o backend Express (rodando em Cloudflare via tunnel nomeado).
+		// Nada depende de localhost: o usuário acessa o domínio e o worker encaminha para o backend origin.
+		if (url.pathname.startsWith("/api/")) {
+			const backendUrl = env.BACKEND_URL;
+			if (!backendUrl) {
+				return json({ error: "Backend não configurado: defina BACKEND_URL no worker." }, 502);
+			}
+			const target = new URL(url.pathname + url.search, backendUrl.replace(/\/$/, ""));
+
+			// Construir headers do upstream (evitar passar Headers bruto do request).
+			const upstreamHeaders: Record<string, string> = {};
+			request.headers.forEach((value, key) => {
+				if (!/^(host|connection)$/i.test(key)) upstreamHeaders[key] = value;
+			});
+
+			let body: BodyInit | undefined = undefined;
+			if (request.method !== "GET" && request.method !== "HEAD") {
+				body = await request.text();
+				if (!upstreamHeaders["content-type"]) upstreamHeaders["content-type"] = "application/json";
+			}
+
+			const init: RequestInit = {
+				method: request.method,
+				headers: upstreamHeaders,
+				body,
+				redirect: "manual",
+			};
+
+			try {
+				const upstream = await fetch(target.toString(), init);
+				const responseHeaders: Record<string, string> = {};
+				upstream.headers.forEach((value, key) => {
+					if (!/^(content-length|connection)$/i.test(key)) responseHeaders[key] = value;
+				});
+				responseHeaders["cache-control"] = "no-store";
+				const upstreamBody = await upstream.text();
+				return new Response(upstreamBody, {
+					status: upstream.status,
+					statusText: upstream.statusText,
+					headers: responseHeaders,
+				});
+			} catch (error) {
+				return json({ error: "Backend indisponível.", detail: error instanceof Error ? error.message : String(error) }, 502);
+			}
+		}
 
 		// Servir frontend React via ASSETS binding para rotas que não são da API
 		if (!isApiPath) {
