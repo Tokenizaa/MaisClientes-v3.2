@@ -34,6 +34,7 @@ interface ScrapeJob {
   completed_at?: string;
   project_id?: string;
   category_id?: string;
+  source?: 'remote' | 'browser_extension';
 }
 
 interface PlaceRecord {
@@ -568,7 +569,7 @@ export default {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
       try {
-        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string };
+        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string; source?: 'remote' | 'browser_extension' };
         if (!body.segment || !body.location) return error('Segmento e Localização são obrigatórios.', 400);
 
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -592,6 +593,7 @@ export default {
           created_at: now,
           project_id: undefined,
           category_id: undefined,
+          source: body.source || 'remote',
         };
 
         const db = getDb(env);
@@ -610,6 +612,7 @@ export default {
           current_step: job.current_step,
           heartbeat_at: job.heartbeat_at,
           created_at: job.created_at,
+          source: job.source,
         });
         if (dbError) return error(dbError.message, 500);
 
@@ -696,6 +699,33 @@ export default {
         completed_at: new Date().toISOString(),
       }).eq('id', job.id);
       return error(err instanceof Error ? err.message : String(err), 500);
+    }
+
+    // Update job status (usado pela extensão do navegador para reportar progresso)
+    const jobPatchMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)$/);
+    if (jobPatchMatch && method === 'PATCH') {
+      const auth = requireAuth(request, env);
+      if (auth instanceof Response) return auth;
+      try {
+        const body = (await readBody(request)) as { status?: string; status_message?: string; total_collected?: number; total_duplicates?: number; total_errors?: number; };
+        const jobId = jobPatchMatch[1];
+        const db = getDb(env);
+        const updateData: Record<string, unknown> = {};
+        if (body.status !== undefined) updateData.status = body.status;
+        if (body.status_message !== undefined) updateData.status_message = body.status_message;
+        if (body.total_collected !== undefined) updateData.total_collected = body.total_collected;
+        if (body.total_duplicates !== undefined) updateData.total_duplicates = body.total_duplicates;
+        if (body.total_errors !== undefined) updateData.total_errors = body.total_errors;
+        updateData.heartbeat_at = new Date().toISOString();
+        if (body.status && body.status !== 'running') {
+          updateData.completed_at = new Date().toISOString();
+        }
+        const { error: dbError } = await db.from('scrape_jobs').update(updateData).eq('id', jobId).eq('user_id', auth.user.id);
+        if (dbError) return error(dbError.message, 500);
+        return json({ success: true, jobId });
+      } catch (err: any) {
+        return error(err instanceof Error ? err.message : String(err), 500);
+      }
     }
 
     // Stop job

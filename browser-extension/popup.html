@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapScrape - Coletar Estabelecimentos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #070e20;
+      color: #e2e8f0;
+      width: 360px;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 .icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-weight: 800;
+    }
+    p.subtitle {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #1d3162;
+      border-radius: 8px;
+      background: #0b1429;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus,
+    select:focus {
+      border-color: #2563eb;
+    }
+    button.primary {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      border: none;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button.primary:hover:not(:disabled) {
+      opacity: 0.95;
+    }
+    button.primary:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .status-card {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 10px;
+      background: #0b1429;
+      border: 1px solid #1d3162;
+    }
+    .status-card h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      color: #ffffff;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #cbd5e1;
+    }
+    .status-row .label {
+      color: #94a3b8;
+    }
+    .status-row .value {
+      font-weight: 700;
+      color: #22d3ee;
+    }
+    .status-row .value.error {
+      color: #f87171;
+    }
+    .status-row .value.success {
+      color: #4ade80;
+    }
+    .divider {
+      height: 1px;
+      background: #1d3162;
+      margin: 16px 0;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button.secondary {
+      flex: 1;
+      padding: 10px;
+      background: #0b1429;
+      border: 1px solid #1d3162;
+      border-radius: 8px;
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary:hover {
+      border-color: #2563eb;
+      color: #22d3ee;
+    }
+    .connected-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .connected-indicator .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+      box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+    }
+    .connected-indicator .dot.disconnected {
+      background: #f87171;
+      box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
+    }
+    .error-msg {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #450a0a;
+      border: 1px solid #7f1d1d;
+      color: #fca5a5;
+      font-size: 12px;
+      display: none;
+    }
+    .error-msg.show {
+      display: block;
+    }
+    .success-msg {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #064e3b;
+      border: 1px solid #047857;
+      color: #86efac;
+      font-size: 12px;
+      display: none;
+    }
+    .success-msg.show {
+      display: block;
+    }
+    .footer {
+      margin-top: 20px;
+      font-size: 11px;
+      color: #64748b;
+      border-top: 1px solid #1d3162;
+      padding-top: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    <span class="icon">M</span>
+    MapScrape
+  </h1>
+  <p class="subtitle">
+    Coleta estabelecimentos do Google Maps diretamente no seu navegador e envia para a sua plataforma MapScrape.
+  </p>
+
+  <div class="connected-indicator" id="connIndicator">
+    <span class="dot disconnected" id="connDot"></span>
+    <span id="connText">Não conectado</span>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+  <div class="success-msg" id="successMsg"></div>
+
+  <form id="scrapeForm">
+    <div class="form-group">
+      <label for="segment">Segmento / Tipo de Estabelecimento</label>
+      <input
+        type="text"
+        id="segment"
+        placeholder="Ex: Restaurantes, Clínicas Odontológicas, Advogados"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="location">Localização</label>
+      <input
+        type="text"
+        id="location"
+        placeholder="Ex: São Paulo, SP"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="limit">Limite de resultados</label>
+      <select id="limit">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+
+    <button type="submit" class="primary" id="startBtn">Iniciar Coleta</button>
+  </form>
+
+  <div class="status-card" id="statusCard" style="display:none;">
+    <h3>Coleta em Andamento</h3>
+    <div class="status-row">
+      <span class="label">Job ID:</span>
+      <span class="value" id="statusJobId">-</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Coletados:</span>
+      <span class="value" id="statusCollected">0</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Status:</span>
+      <span class="value" id="statusText">Iniciando...</span>
+    </div>
+  </div>
+
+  <div class="btn-group">
+    <button type="button" class="secondary" id="stopBtn" style="display:none;">Parar</button>
+    <button type="button" class="secondary" id="openMapsBtn">Abrir Google Maps</button>
+  </div>
+
+  <div class="footer">
+    MapScrape Browser Extension v1.0.0
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

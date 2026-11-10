@@ -17,10 +17,11 @@ import {
   Shield,
   CreditCard,
   Monitor,
+  Puzzle,
 } from 'lucide-react';
 import { ScrapeJob } from '../shared/types';
 
-export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban' | 'privacy' | 'billing' | 'client-scrape';
+export type ScreenTab = 'dashboard' | 'projects' | 'credentials' | 'search' | 'results' | 'export' | 'history' | 'logs' | 'profile' | 'kanban' | 'privacy' | 'billing' | 'client-scrape' | 'extension';
 
 interface SidebarProps {
   currentTab: ScreenTab;
@@ -70,6 +71,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Coleta no Seu Navegador',
       icon: Monitor,
       description: 'Coleta client-side via Google Maps',
+    },
+    {
+      id: 'extension' as ScreenTab,
+      label: 'Extensão do Navegador',
+      icon: Puzzle,
+      description: 'Coleta automatizada via extensão Chrome',
     },
     {
       id: 'results' as ScreenTab,

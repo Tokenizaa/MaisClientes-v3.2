@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "MapScrape Browser Extension",
+  "version": "1.0.0",
+  "description": "Coleta estabelecimentos do Google Maps diretamente no seu navegador para o MapScrape.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://maps.google.com/*",
+    "https://*.defesai.com.br/*",
+    "https://maisclientes-api.olfnetto.workers.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://maps.google.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MapScrape - Coletar Estabelecimentos",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content.css"],
+      "matches": ["https://www.google.com/maps/*", "https://maps.google.com/*"]
+    }
+  ]
+}
