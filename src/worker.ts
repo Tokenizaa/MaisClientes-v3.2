@@ -967,13 +967,13 @@ export default {
             segment: body.segment || '',
             name: place.name || 'Estabelecimento',
             category: place.category || body.segment || '',
-            address: place.address || '',
+            address: place.address || body.location || '',
             phone: place.phone || '',
             website: place.website || '',
             rating: place.rating || '',
             review_count: place.review_count || '',
-            city: place.city || '',
-            state: place.state || '',
+            city: place.city || String(body.location || '').split(',')[0].trim(),
+            state: place.state || (String(body.location || '').match(/(?:,\\s*|\\s+)([A-Z]{2})$/i) || [])[1] || '',
             collected_at: now,
             source_url: place.source_url || '',
             maps_url: place.maps_url || '',
@@ -984,8 +984,9 @@ export default {
 
         // Atualizar job com total coletado
         await db.from('scrape_jobs').update({
-          total_found: saved.length,
+          total_found: body.places.length,
           total_collected: saved.length,
+          total_duplicates: Math.max(0, body.places.length - saved.length),
           status: 'completed',
           status_message: `Coleta no navegador concluída: ${saved.length} estabelecimento(s) salvo(s).`,
           current_step: 'Concluído',
