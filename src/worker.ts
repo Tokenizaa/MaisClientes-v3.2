@@ -924,6 +924,9 @@ export default {
           .maybeSingle();
         if (jobError) return error(jobError.message, 500);
         if (!job) return error('Coleta não encontrada para este usuário.', 404);
+        if (job.source !== 'browser_extension') {
+          return error('Esta coleta não aceita resultados enviados pelo navegador.', 409);
+        }
         if (job.status !== 'running') return error('Esta coleta não está mais ativa.', 409);
 
         const now = new Date().toISOString();
