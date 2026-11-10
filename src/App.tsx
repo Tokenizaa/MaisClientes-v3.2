@@ -592,8 +592,7 @@ export default function App() {
             <ProjectsScreen
               jobs={jobs}
               apiReady={hasApiKey}
-              onNewScrape={(projectName, categoryName) => {
-                void projectName;
+              onNewScrape={(_projectName, categoryName) => {
                 if (categoryName !== undefined) setPreselectedCategory(categoryName);
                 setCurrentTab('search');
               }}
