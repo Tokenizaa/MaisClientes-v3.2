@@ -34,7 +34,7 @@ interface ScrapeJob {
   completed_at?: string;
   project_id?: string;
   category_id?: string;
-  source?: 'remote' | 'browser_extension';
+  source?: 'remote' | 'browser_extension' | 'browser_client' | 'browser_client';
 }
 
 interface PlaceRecord {
@@ -638,7 +638,7 @@ export default {
 
         // Coletas executadas no navegador do usuário não iniciam sessão remota.
         // O navegador envia os resultados via POST /api/v1/scrape/collect.
-        if (job.source === 'browser_extension') {
+        if (job.source === 'browser_extension' || job.source === 'browser_client') {
           await db.from('scrape_jobs').update({
             status: 'running',
             status_message: 'Aguardando coleta no navegador do usuário...',
@@ -780,7 +780,7 @@ export default {
         if (jobError) return error(jobError.message, 500);
         if (!job) return error('Coleta não encontrada.', 404);
 
-        if (job.source === 'browser_extension') {
+        if (job.source === 'browser_extension' || job.source === 'browser_client') {
           const stoppedAt = new Date().toISOString();
           const { error: updateError } = await db.from('scrape_jobs').update({
             status: 'stopped',
@@ -888,10 +888,26 @@ export default {
 
     // Coleta client-side: recebe lugares coletados pelo navegador do usuário
     if (path === '/api/v1/scrape/collect' && method === 'POST') {
-      const auth = requireAuth(request, env);
-      if (auth instanceof Response) return auth;
       try {
-        const body = (await readBody(request)) as {
+        // Bookmarklets fazem POST simples (sem preflight CORS) usando form-urlencoded.
+        // A extensão antiga continua podendo enviar JSON com Authorization.
+        let body: any;
+        let authRequest = request;
+        const contentType = request.headers.get('content-type') || '';
+        if (contentType.includes('application/x-www-form-urlencoded')) {
+          const form = await request.formData();
+          const token = String(form.get('token') || '');
+          const payload = String(form.get('payload') || '{}');
+          const headers = new Headers(request.headers);
+          if (token) headers.set('Authorization', `Bearer ${token}`);
+          authRequest = new Request(request, { headers });
+          body = JSON.parse(payload);
+        } else {
+          body = await readBody(request);
+        }
+        const auth = requireAuth(authRequest, env);
+        if (auth instanceof Response) return auth;
+        body = body as {
           jobId?: string;
           segment?: string;
           location?: string;
@@ -911,9 +927,7 @@ export default {
           }>;
         };
         if (!body.jobId) return error('jobId é obrigatório.', 400);
-        if (!body.places || !Array.isArray(body.places) || body.places.length === 0) {
-          return error('Nenhum lugar para coletar.', 400);
-        }
+        if (!Array.isArray(body.places)) return error('places deve ser uma lista.', 400);
 
         const db = getDb(env);
         const { data: job, error: jobError } = await db
@@ -924,7 +938,7 @@ export default {
           .maybeSingle();
         if (jobError) return error(jobError.message, 500);
         if (!job) return error('Coleta não encontrada para este usuário.', 404);
-        if (job.source !== 'browser_extension') {
+        if (job.source !== 'browser_extension' && job.source !== 'browser_client') {
           return error('Esta coleta não aceita resultados enviados pelo navegador.', 409);
         }
         if (job.status !== 'running') return error('Esta coleta não está mais ativa.', 409);
