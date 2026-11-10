@@ -237,7 +237,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
                   <Copy className="w-4 h-4" /> {copied ? 'Copiado' : 'Copiar favorito'}
                 </button>
               </div>
-              <p className="text-xs text-slate-500">Se sair da plataforma ou trocar de conta, prepare uma nova coleta e atualize o favorito para renovar a autenticação.</p>
+              <p className="text-xs text-slate-500">O favorito contém sua sessão de acesso: não o compartilhe. Se sair da plataforma ou trocar de conta, atualize-o após entrar novamente.</p>
               <ol className="list-decimal ml-5 space-y-1.5 text-xs text-slate-400">
                 <li>Se necessário, mostre a barra de favoritos com <strong>Ctrl + Shift + B</strong>.</li>
                 <li>Arraste <strong>MaisClientes — Coletar</strong> para essa barra. Faça isso apenas uma vez por navegador.</li>
