@@ -19,6 +19,10 @@ new_sqlite_classes = ["ScraperSession"]
 name = "maisclientes-api"
 compatibility_date = "2026-11-10"
 
+[env.production.vars]
+APP_NAME = "maisclientes"
+BROWSER_WS_ENDPOINT = "wss://designer-controlled-customs-cards.trycloudflare.com"
+
 [[env.production.durable_objects.bindings]]
 name = "SESSION_PROXY"
 class_name = "ScraperSession"
