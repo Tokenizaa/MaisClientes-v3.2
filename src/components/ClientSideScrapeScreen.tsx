@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Play,
   Square,
@@ -40,6 +40,43 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info');
 
   const baseUrl = window.location.origin;
+
+  useEffect(() => {
+    if (!jobId) return;
+    let active = true;
+
+    const refreshJob = async () => {
+      try {
+        const response = await accountFetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+        if (!response.ok) throw new Error(`Falha ao consultar coleta (HTTP ${response.status}).`);
+        const payload = await response.json();
+        const job = payload.data || payload;
+        if (!active) return;
+
+        setCollectedCount(Number(job.total_collected || 0));
+        if (['completed', 'failed', 'stopped'].includes(job.status)) {
+          setIsCollecting(false);
+          setMessage(job.status_message || (
+            job.status === 'completed' ? 'Coleta concluída.' :
+            job.status === 'stopped' ? 'Coleta interrompida.' : 'A coleta falhou.'
+          ));
+          setMessageType(job.status === 'completed' ? 'success' : 'error');
+        }
+      } catch (error) {
+        if (active) {
+          setMessage(error instanceof Error ? error.message : 'Falha ao consultar o status da coleta.');
+          setMessageType('error');
+        }
+      }
+    };
+
+    void refreshJob();
+    const interval = window.setInterval(() => void refreshJob(), 2000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [jobId]);
 
   // Script que o usuário cola no console do Google Maps
   const collectScript = `(async () => {
@@ -131,6 +168,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
         }),
       });
       const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `A API recusou os resultados (HTTP ${resp.status}).`);
       console.log('✅ Enviados para a API:', data.collected, 'lugares');
       alert('Coleta concluída! ' + data.collected + ' estabelecimento(s) salvo(s).');
     } catch (err) {
