@@ -1661,6 +1661,19 @@ async function executeScrapeJob(
     await store.persistScrapeProgress(job, jobLease || undefined);
   };
 
+  let browserReconnectAttempts = 0;
+  const MAX_BROWSER_RECONNECTS = 3;
+
+  async function ensureBrowser(): Promise<Browser> {
+    if (browser) return browser;
+    if (browserReconnectAttempts >= MAX_BROWSER_RECONNECTS) {
+      throw new Error('Orçamento de reconexão do navegador esgotado.');
+    }
+    browser = await connectScraperBrowser(state.settings?.browserWsEndpoint);
+    browserReconnectAttempts += 1;
+    return browser;
+  }
+
   try {
     if (await store.isJobCancellationRequested(jobId, userId)) {
       cancelled = true;
@@ -1750,6 +1763,23 @@ async function executeScrapeJob(
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error ?? 'Erro desconhecido');
+        const feedBrowserUnavailable = /connection closed|target closed|detached frame|session closed|websocket|browser.*disconnect|protocol error|cannot find context|execution context.*destroyed/i.test(message);
+        if (feedBrowserUnavailable && browserReconnectAttempts < MAX_BROWSER_RECONNECTS) {
+          browser = null;
+          try {
+            await ensureBrowser();
+            page = await browser!.newPage();
+            await page.setViewport({ width: 1280, height: 900 });
+            await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' });
+            await page.goto('https://www.google.com/maps/search/' + encodeURIComponent(searchQuery), { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await audit('feed_read_reconnected', 'info', 'Navegador reconectado após falha na leitura do feed; pesquisa reiniciada.', { segment, location });
+            continue;
+          } catch (reconnectError) {
+            const reconnectMessage = reconnectError instanceof Error ? reconnectError.message : String(reconnectError ?? 'Erro desconhecido');
+            await audit('feed_read_reconnect_failed', 'error', 'Falha ao reconectar o navegador após falha na leitura do feed.', { error_message: reconnectMessage.slice(0, 500) });
+            throw error;
+          }
+        }
         await audit('feed_read_failed', 'error', 'Não foi possível continuar lendo o feed do Google Maps.', {
           error_message: message.slice(0, 500),
         });
@@ -1814,6 +1844,60 @@ async function executeScrapeJob(
           if (await store.isJobCancellationRequested(jobId, userId)) {
             cancelled = true;
             break;
+          }
+          if (browserUnavailable && browserReconnectAttempts < MAX_BROWSER_RECONNECTS) {
+            browser = null;
+            await store.recordScrapePlaceError(job, jobLease!);
+            await audit('browser_reconnecting', 'warn', 'Navegador desconectado durante extração; tentando reconectar e retryar a ficha.', {
+              url: item.key, attempt: browserReconnectAttempts + 1,
+            });
+            try {
+              await ensureBrowser();
+              detailPage = await browser!.newPage();
+              await detailPage.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+              await new Promise((resolve) => setTimeout(resolve, 800));
+              const retryPlace = await extractPlaceDetails(detailPage, jobId, item.url);
+              if (job.project_id) (retryPlace as any).project_id = job.project_id;
+              if (job.category_id) (retryPlace as any).category_id = job.category_id;
+              if (!retryPlace.city && locationFallback.city) retryPlace.city = locationFallback.city;
+              if (!retryPlace.state && locationFallback.state) retryPlace.state = locationFallback.state;
+
+              if (await store.isJobCancellationRequested(jobId, userId)) {
+                cancelled = true;
+                break;
+              }
+              const outcome = await store.persistScrapedPlace(job, retryPlace, sourcePlaceId, item.key, jobLease);
+              if (outcome === 'duplicate') {
+                await audit('duplicate_skipped', 'info', 'Duplicado detectado na verificação atômica final; registro descartado.', {
+                  url: item.key, name: retryPlace.name, duplicate_count: job.total_duplicates, race_condition: true,
+                });
+                continue;
+              }
+              state.places.push(retryPlace);
+              await audit('place_saved', 'info', 'Novo contato gravado atomicamente.', {
+                url: item.key, name: retryPlace.name, collected: job.total_collected, target: limit,
+              });
+              await updateProgress(`Salvo: ${retryPlace.name || 'Estabelecimento sem nome'} (${job.total_collected}/${limit})`);
+              continue;
+            } catch (retryError: any) {
+              const retryMessage = retryError instanceof Error ? retryError.message : String(retryError ?? 'Erro desconhecido');
+              const retryBrowserUnavailable = /connection closed|target closed|detached frame|session closed|websocket|browser.*disconnect|protocol error|cannot find context|execution context.*destroyed/i.test(retryMessage);
+              await audit(browserUnavailable ? 'browser_disconnected' : 'place_extraction_failed', 'error', retryMessage, {
+                url: item.key, retryable: false,
+                error_name: retryError instanceof Error ? retryError.name : typeof retryError,
+                error_message: retryMessage.slice(0, 500),
+                error_stack: retryError instanceof Error ? retryError.stack?.split('\n').slice(0, 6).join('\n') : null,
+              });
+              console.error(`[Scraper] Falha na extração da ficha ${item.key} (retry):`, retryMessage);
+              if (retryBrowserUnavailable) {
+                browserErrorDuringExtraction = true;
+                pauseReason = 'O navegador Chromium perdeu a conexão durante a extração; a coleta foi encerrada sem classificar isso como fim da lista.';
+                await audit('browser_disconnected', 'error', pauseReason, { url: item.key });
+                break;
+              }
+              await updateProgress(`Falha isolada na ficha (${job.total_errors}); seguindo para a próxima...`);
+              continue;
+            }
           }
           await store.recordScrapePlaceError(job, jobLease!);
           await audit(browserUnavailable ? 'browser_disconnected' : 'place_extraction_failed', 'error', message, {
