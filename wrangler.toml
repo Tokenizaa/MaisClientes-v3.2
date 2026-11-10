@@ -6,6 +6,22 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 APP_NAME = "maisclientes"
 
+[[durable_objects.bindings]]
+name = "SESSION_PROXY"
+class_name = "ScraperSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ScraperSession"]
+
 [env.production]
 name = "maisclientes-api"
 compatibility_date = "2026-11-10"
+
+[[env.production.durable_objects.bindings]]
+name = "SESSION_PROXY"
+class_name = "ScraperSession"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["ScraperSession"]
