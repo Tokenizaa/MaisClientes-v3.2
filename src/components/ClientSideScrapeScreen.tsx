@@ -93,7 +93,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
           rating,
           review_count: '',
           city: LOCATION.split(',')[0],
-          state: 'SP',
+          state: (LOCATION.match(/(?:,\\s*|\\s+)([A-Z]{2})$/) || [])[1] || '',
           source_url: href,
           maps_url: href,
           collected_at: new Date().toISOString(),
@@ -157,13 +157,14 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
           limit,
           projectName: `${segment} · ${location}`,
           categoryName: segment,
+          source: 'browser_extension',
         }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Falha ao criar job.');
       setJobId(data.jobId || data.id);
       setIsCollecting(true);
-      setMessage('Job criado. Abra o Google Maps e cole o script no console.');
+      setMessage('Job criado. Abra o Google Maps e execute o script de coleta.');
       setMessageType('info');
     } catch (err: any) {
       setMessage(err instanceof Error ? err.message : 'Erro ao criar job.');
@@ -199,7 +200,7 @@ export const ClientSideScrapeScreen: React.FC<ClientSideScrapeProps> = ({
       <div className="bg-[#0b1429] border border-[#17274f] rounded-2xl p-6 sm:p-8 shadow-2xl">
         <div className="flex items-center gap-3 mb-4">
           <Globe className="w-6 h-6 text-blue-400" />
-          <h2 className="text-xl font-bold text-white">Coleta no Seu Navegador</h2>
+          <h2 className="text-xl font-bold text-white">Coleta pelo Seu Navegador</h2>
         </div>
         <p className="text-slate-300 text-sm mb-6">
           Como o scraping server-side não tem slots disponíveis, a coleta agora é feita
