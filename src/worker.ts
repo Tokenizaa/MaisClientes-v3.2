@@ -99,7 +99,6 @@ function requireAuth(req: Request, env: Env): { user: UserProfile } | Response {
   const token = auth.replace(/^Bearer\s+/i, '');
   if (!token) return error('Autenticação necessária.', 401);
 
-  // Token simples do tipo sess_<userId> (compatível com o server.ts anterior)
   const userId = token.startsWith('sess_') ? token.slice(5) : null;
   if (!userId) return error('Token inválido.', 401);
 
@@ -128,7 +127,7 @@ export default {
       }
     }
 
-    // Auth login (público)
+    // Auth login (público) - usa tabela app_users (fonte de verdade para FK)
     if (path === '/api/auth/login' && method === 'POST') {
       try {
         const body = (await readBody(request)) as { email?: string; password?: string };
@@ -136,8 +135,7 @@ export default {
 
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
-          .from('users')
+          .from('app_users')
           .select('*')
           .eq('email', String(body.email).trim().toLowerCase())
           .single();
@@ -154,7 +152,7 @@ export default {
           user: {
             id: data.id,
             email: data.email,
-            name: data.display_name || data.email,
+            name: data.name || data.email,
             role: data.role,
             created_at: data.created_at,
           },
@@ -171,8 +169,7 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
-          .from('users')
+          .from('app_users')
           .select('*')
           .eq('id', auth.user.id)
           .single();
@@ -181,7 +178,7 @@ export default {
           user: {
             id: data.id,
             email: data.email,
-            name: data.display_name || data.email,
+            name: data.name || data.email,
             role: data.role,
             created_at: data.created_at,
           },
@@ -198,7 +195,6 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
           .from('scrape_jobs')
           .select('*')
           .eq('user_id', auth.user.id)
@@ -237,7 +233,7 @@ export default {
           current_step: 'Conectando ao navegador...',
           heartbeat_at: now,
           created_at: now,
-          project_id: body.projectName ? undefined : undefined,
+          project_id: undefined,
           category_id: undefined,
         };
 
@@ -260,10 +256,9 @@ export default {
         });
         if (dbError) return error(dbError.message, 500);
 
-        // Lançar execução do scraper em background (não bloqueia a resposta)
         ctx.waitUntil(runScrapeJob(job, env));
 
-        return json({ id: job.id, status: job.status, message: job.status_message }, 201);
+        return json({ jobId: job.id, id: job.id, status: job.status, message: job.status_message }, 201);
       } catch (err: any) {
         return error(err.message, 500);
       }
@@ -277,7 +272,6 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
           .from('scrape_jobs')
           .select('*')
           .eq('id', jobDetailMatch[1])
@@ -314,7 +308,6 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
           .from('categories')
           .select('*')
           .order('name', { ascending: true });
@@ -332,7 +325,6 @@ export default {
       try {
         const db = getDb(env);
         const { data, error: dbError } = await db
-          
           .from('projects')
           .select('*')
           .order('name', { ascending: true });
@@ -361,7 +353,7 @@ export default {
 };
 
 // ============================================================================
-// Crypto (Web Crypto API, substitui crypto do Node)
+// Crypto (Web Crypto API)
 // ============================================================================
 
 async function sha256(input: string): Promise<string> {
@@ -373,13 +365,12 @@ async function sha256(input: string): Promise<string> {
 }
 
 // ============================================================================
-// Scraper (execução em background via Durable Object / Browser Rendering)
+// Scraper (execução em background)
 // ============================================================================
 
 async function runScrapeJob(job: ScrapeJob, env: Env): Promise<void> {
   console.info(`[Scraper] Iniciando job ${job.id} para ${job.segment} em ${job.location}`);
   try {
-    // Atualizar status para conectando
     await updateJobStatus(env, job.id, 'running', 'Conectando ao navegador...', job.total_collected, job.total_duplicates, job.total_errors);
 
     const endpoint = env.BROWSER_WS_ENDPOINT;
@@ -388,7 +379,6 @@ async function runScrapeJob(job: ScrapeJob, env: Env): Promise<void> {
       return;
     }
 
-    // Criar sessão no nettos-browser-service
     const sessionUrl = new URL('/v1/sessions', endpoint.replace(/\/$/, '')).toString();
     const sessionResp = await fetch(sessionUrl, { method: 'POST' });
     if (!sessionResp.ok) {
@@ -402,10 +392,6 @@ async function runScrapeJob(job: ScrapeJob, env: Env): Promise<void> {
     }
 
     await updateJobStatus(env, job.id, 'running', 'Navegador conectado. Iniciando coleta...', job.total_collected, job.total_duplicates, job.total_errors);
-
-    // TODO: Implementar loop de scraping real usando a sessão do navegador
-    // Isto requer Durable Objects para manter a conexão WebSocket aberta durante
-    // a execução do job, que pode exceder o timeout de uma única invocation do Worker.
 
     await updateJobStatus(env, job.id, 'completed', 'Coleta concluída (placeholder - execução real pendente de Durable Object).', job.total_collected, job.total_duplicates, job.total_errors);
   } catch (err: any) {
@@ -426,7 +412,6 @@ async function updateJobStatus(
   try {
     const db = getDb(env);
     await db
-      
       .from('scrape_jobs')
       .update({
         status,
