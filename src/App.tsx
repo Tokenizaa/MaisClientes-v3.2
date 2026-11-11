@@ -334,12 +334,34 @@ export default function App() {
         if (updatedJob.status !== 'running') {
           if (progressPollRef.current) clearInterval(progressPollRef.current);
           progressPollRef.current = null;
-          // A coleta terminou: abre a base consolidada e recarrega a visão global,
-          // sem manter o filtro restrito ao job recém-finalizado.
-          setCurrentPage(1);
-          setSelectedJobId(undefined);
-          setCurrentTab('results');
-          await loadPlaces('');
+          setIsScraping(false);
+
+          if (updatedJob.status === 'completed') {
+            setAppNotification({
+              message: updatedJob.status_message || `Coleta concluída! ${updatedJob.total_collected} estabelecimentos capturados.`,
+              type: 'success',
+            });
+          } else if (updatedJob.status === 'failed') {
+            setAppNotification({
+              message: `A coleta não foi concluída: ${updatedJob.status_message || 'Erro durante a extração.'}`,
+              type: 'error',
+            });
+          } else if (updatedJob.status === 'partial') {
+            setAppNotification({
+              message: updatedJob.status_message || `Coleta finalizada parcialmente: ${updatedJob.total_collected} contatos salvos.`,
+              type: 'info',
+            });
+          } else if (updatedJob.status === 'stopped') {
+            setAppNotification({
+              message: 'Coleta interrompida.',
+              type: 'info',
+            });
+          }
+
+          // Do NOT auto-redirect to results tab.
+          // Keep user on search screen so they can see the completed HUD and live cards.
+          // The user can click "Ver os leads" in the HUD to navigate whenever they want.
+          await loadPlaces(jobId);
         }
       } catch (err) {
         consecutiveErrors++;
