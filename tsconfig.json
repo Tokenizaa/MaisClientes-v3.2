@@ -23,5 +23,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["dist", "cloudflare-browser-service", "origin"]
+  "exclude": ["dist", "cloudflare-browser-service", "origin", "src/worker.ts"]
 }

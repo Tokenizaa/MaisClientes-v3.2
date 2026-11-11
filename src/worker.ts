@@ -9,7 +9,7 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_ANON_KEY: string;
-  BROWSER_WS_ENDPOINT?: string;
+  BROWSERLESS_TOKEN?: string;
   BROWSER_SERVICE_URL?: string;
   MAPSCRAPE_API_KEY?: string;
   SESSION_PROXY: DurableObjectNamespace;
@@ -209,14 +209,15 @@ export class ScraperSession extends DurableObject {
       browserWsEndpoint?: string;
     };
 
-    const browserWsEndpoint = body.browserWsEndpoint || this.env.BROWSER_WS_ENDPOINT || '';
+    const token = body.browserlessToken || this.env.BROWSERLESS_TOKEN || '';
+    const browserWsEndpoint = token ? `wss://production-sfo.browserless.io?token=${encodeURIComponent(token)}` : '';
 
-    await this.updateJob(body.jobId, 'running', 'Conectando ao navegador...', 0, 0, 0);
+    await this.updateJob(body.jobId, 'running', 'Conectando ao navegador Browserless...', 0, 0, 0);
 
     try {
       if (!browserWsEndpoint) {
-        await this.updateJob(body.jobId, 'failed', 'Navegador remoto não configurado.', 0, 0, 0);
-        return json({ error: 'BROWSER_WS_ENDPOINT não configurado.' }, 500);
+        await this.updateJob(body.jobId, 'failed', 'Navegador remoto Browserless não configurado.', 0, 0, 0);
+        return json({ error: 'BROWSERLESS_TOKEN não configurado.' }, 500);
       }
 
       await this.updateJob(body.jobId, 'running', 'Navegador conectado. Coletando resultados...', 0, 0, 0);
@@ -250,9 +251,9 @@ export class ScraperSession extends DurableObject {
   ): Promise<void> {
     console.info(`[Scraper DO] Job ${jobId}: ${segment} em ${location}, limite ${limit}`);
 
-    const wsEndpoint = browserWsEndpoint || this.env.BROWSER_WS_ENDPOINT;
+    const wsEndpoint = browserWsEndpoint || (this.env.BROWSERLESS_TOKEN ? `wss://production-sfo.browserless.io?token=${encodeURIComponent(this.env.BROWSERLESS_TOKEN)}` : '');
     if (!wsEndpoint) {
-      await this.updateJob(jobId, 'failed', 'BROWSER_WS_ENDPOINT não configurado.', 0, 0, 0);
+      await this.updateJob(jobId, 'failed', 'BROWSERLESS_TOKEN não configurado.', 0, 0, 0);
       return;
     }
 
@@ -655,7 +656,7 @@ export default {
 
         // Executar scraping real via Durable Object ScraperSession (CDP direto)
         try {
-          const browserWsEndpoint = env.BROWSER_WS_ENDPOINT || '';
+          const browserWsEndpoint = env.BROWSERLESS_TOKEN ? `wss://production-sfo.browserless.io?token=${encodeURIComponent(env.BROWSERLESS_TOKEN)}` : '';
           const doId = env.SESSION_PROXY.idFromName(job.id);
           const doStub = env.SESSION_PROXY.get(doId);
           const startResp = await doStub.fetch('https://scraper.internal/start', {
@@ -854,13 +855,13 @@ export default {
     // Scraper settings
     if (path === '/api/v1/scraper/settings' && method === 'GET') {
       return json({
-        engine: env.BROWSER_WS_ENDPOINT ? 'cloudflare_remote' : 'local_puppeteer',
-        browserWsEndpoint: env.BROWSER_WS_ENDPOINT || '',
-        hasRemoteEndpoint: Boolean(env.BROWSER_WS_ENDPOINT),
-        status: env.BROWSER_WS_ENDPOINT ? 'ready' : 'error',
-        description: env.BROWSER_WS_ENDPOINT
-          ? 'Navegador remoto configurado (Cloudflare Browser Rendering).'
-          : 'Nenhum navegador remoto configurado.',
+        engine: env.BROWSERLESS_TOKEN ? 'browserless' : 'local_puppeteer',
+        hasRemoteEndpoint: Boolean(env.BROWSERLESS_TOKEN),
+        hasToken: Boolean(env.BROWSERLESS_TOKEN),
+        status: env.BROWSERLESS_TOKEN ? 'ready' : 'error',
+        description: env.BROWSERLESS_TOKEN
+          ? 'Navegador remoto Browserless configurado.'
+          : 'Nenhum BROWSERLESS_TOKEN configurado.',
       });
     }
 

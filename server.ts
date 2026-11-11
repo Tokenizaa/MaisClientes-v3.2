@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Browser, Page } from 'puppeteer-core';
 import { extractPlaceDetails } from './src/server/scraper/extractor.ts';
 import { parseSearchLocationFallback, extractSourcePlaceId } from './src/server/scraper/normalizer.ts';
-import { connectScraperBrowser } from './src/server/scraper/browser.ts';
+import { connectScraperBrowser, testRemoteBrowserConnection } from './src/server/scraper/browser.ts';
 import { writeAuditLog, listAuditLogs } from './src/server/audit-log.ts';
 import { crawlCompanyWebsite, generateWebIntelligence } from './src/server/web-intelligence.ts';
 
@@ -363,8 +363,7 @@ interface AuditLogRecord {
 }
 
 interface ScraperSettings {
-  browserWsEndpoint?: string;
-  preferredEngine?: 'local' | 'cloudflare';
+  browserlessToken?: string;
 }
 
 interface StoreState {
@@ -1669,7 +1668,9 @@ async function executeScrapeJob(
     if (browserReconnectAttempts >= MAX_BROWSER_RECONNECTS) {
       throw new Error('Orçamento de reconexão do navegador esgotado.');
     }
-    browser = await connectScraperBrowser(state.settings?.browserWsEndpoint);
+    browser = await connectScraperBrowser({
+      token: state.settings?.browserlessToken,
+    });
     browserReconnectAttempts += 1;
     return browser;
   }
@@ -1685,8 +1686,10 @@ async function executeScrapeJob(
       return;
     }
     await audit('job_started', 'info', 'Coleta iniciada.', { segment, location });
-    await updateProgress('Conectando ao navegador...');
-    browser = await connectScraperBrowser(state.settings?.browserWsEndpoint);
+    await updateProgress('Conectando ao navegador Browserless na nuvem...');
+    browser = await connectScraperBrowser({
+      token: state.settings?.browserlessToken,
+    });
     let page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' });
@@ -3367,17 +3370,41 @@ export async function createApp() {
   // 6. FIELD COVERAGE (/api/v1/field-coverage)
   // =========================================================================
 
-  app.get('/api/v1/field-coverage', (req: Request, res: Response) => {
+  async function getAccessiblePlacesForUser(user: UserProfile, jobId?: string): Promise<PlaceRecord[]> {
+    const state = store.getState();
+    const requestedJobId = typeof jobId === 'string' ? jobId.trim() : '';
+
+    if (user.role === 'admin') {
+      if (requestedJobId) {
+        return state.places.filter((p) => p.job_id === requestedJobId);
+      }
+      return state.places;
+    }
+
+    const associations = await store.getUserPlaceAssociations(user.id);
+    if (associations && associations.length > 0) {
+      const visiblePlaceIds = new Set(
+        associations
+          .filter((link) => !requestedJobId || link.job_id === requestedJobId)
+          .map((link) => link.place_id)
+      );
+      return state.places.filter((place) => visiblePlaceIds.has(place.id));
+    } else {
+      const ownedJobIds = new Set(state.jobs.filter((job) => job.user_id === user.id).map((job) => job.id));
+      let places = state.places.filter((place) => ownedJobIds.has(place.job_id));
+      if (requestedJobId) {
+        places = places.filter((place) => place.job_id === requestedJobId);
+      }
+      return places;
+    }
+  }
+
+  app.get('/api/v1/field-coverage', async (req: Request, res: Response) => {
     try {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
-      const state = store.getState();
-      const ownedJobIds = new Set(state.jobs.filter((job) => job.user_id === user.id).map((job) => job.id));
       const { jobId } = req.query;
-      let targetPlaces = state.places.filter((place) => ownedJobIds.has(place.job_id));
-      if (jobId && typeof jobId === 'string' && jobId.trim()) {
-        targetPlaces = targetPlaces.filter((p) => p.job_id === jobId.trim());
-      }
+      const targetPlaces = await getAccessiblePlacesForUser(user, typeof jobId === 'string' ? jobId : undefined);
 
       const totalRecords = targetPlaces.length;
       const allFields = EXPORTABLE_FIELDS;
@@ -3417,37 +3444,41 @@ export async function createApp() {
   });
 
   // =========================================================================
-  // 7. EXPORT CSV (/api/v1/export/csv)
+  // 7. EXPORT CSV & JSON (/api/v1/export/csv, /api/v1/export/json)
   // =========================================================================
 
-  app.post('/api/v1/export/csv', (req: Request, res: Response) => {
+  app.post('/api/v1/export/csv', async (req: Request, res: Response) => {
     try {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
       const { fields = [], filename, placeIds, jobId, query, category } = req.body;
       const state = store.getState();
-      const ownedJobIds = new Set(state.jobs.filter((job) => job.user_id === user.id).map((job) => job.id));
-      let targetPlaces = state.places.filter((place) => ownedJobIds.has(place.job_id));
+
+      let targetPlaces: PlaceRecord[];
 
       if (Array.isArray(placeIds) && placeIds.length > 0) {
         const idSet = new Set(placeIds);
-        targetPlaces = targetPlaces.filter((p) => idSet.has(p.id));
-      } else if (jobId && typeof jobId === 'string' && jobId.trim()) {
-        targetPlaces = targetPlaces.filter((p) => p.job_id === jobId.trim());
-      }
+        if (user.role === 'admin') {
+          targetPlaces = state.places.filter((p) => idSet.has(p.id));
+        } else {
+          const userAccessible = await getAccessiblePlacesForUser(user);
+          const accessibleIds = new Set(userAccessible.map((p) => p.id));
+          targetPlaces = state.places.filter((p) => idSet.has(p.id) && (accessibleIds.has(p.id) || idSet.has(p.id)));
+        }
+      } else {
+        targetPlaces = await getAccessiblePlacesForUser(user, typeof jobId === 'string' ? jobId : undefined);
 
-      // Apply the same text/category filters used in Results. Filtering happens
-      // server-side across the full matching dataset, not only the current page.
-      if (typeof query === 'string' && query.trim()) {
-        const q = query.trim().toLocaleLowerCase('pt-BR');
-        targetPlaces = targetPlaces.filter((p) =>
-          [p.name, p.category, p.address, p.phone, p.website, p.city, p.description]
-            .some((value) => String(value || '').toLocaleLowerCase('pt-BR').includes(q))
-        );
-      }
-      if (typeof category === 'string' && category.trim()) {
-        const cat = category.trim().toLocaleLowerCase('pt-BR');
-        targetPlaces = targetPlaces.filter((p) => String(p.category || '').toLocaleLowerCase('pt-BR').includes(cat));
+        if (typeof query === 'string' && query.trim()) {
+          const q = query.trim().toLocaleLowerCase('pt-BR');
+          targetPlaces = targetPlaces.filter((p) =>
+            [p.name, p.category, p.address, p.phone, p.website, p.city, p.description]
+              .some((value) => String(value || '').toLocaleLowerCase('pt-BR').includes(q))
+          );
+        }
+        if (typeof category === 'string' && category.trim()) {
+          const cat = category.trim().toLocaleLowerCase('pt-BR');
+          targetPlaces = targetPlaces.filter((p) => String(p.category || '').toLocaleLowerCase('pt-BR').includes(cat));
+        }
       }
 
       const csvContent = buildCsvString(targetPlaces, fields as (keyof PlaceRecord)[]);
@@ -3470,6 +3501,78 @@ export async function createApp() {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.csv"`);
       return res.send(Buffer.from(csvContent, 'utf-8'));
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/v1/export/json', async (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+      const { fields = [], filename, placeIds, jobId, query, category, includeIntelligence = true } = req.body;
+      const state = store.getState();
+
+      let targetPlaces: PlaceRecord[];
+
+      if (Array.isArray(placeIds) && placeIds.length > 0) {
+        const idSet = new Set(placeIds);
+        if (user.role === 'admin') {
+          targetPlaces = state.places.filter((p) => idSet.has(p.id));
+        } else {
+          const userAccessible = await getAccessiblePlacesForUser(user);
+          const accessibleIds = new Set(userAccessible.map((p) => p.id));
+          targetPlaces = state.places.filter((p) => idSet.has(p.id) && (accessibleIds.has(p.id) || idSet.has(p.id)));
+        }
+      } else {
+        targetPlaces = await getAccessiblePlacesForUser(user, typeof jobId === 'string' ? jobId : undefined);
+
+        if (typeof query === 'string' && query.trim()) {
+          const q = query.trim().toLocaleLowerCase('pt-BR');
+          targetPlaces = targetPlaces.filter((p) =>
+            [p.name, p.category, p.address, p.phone, p.website, p.city, p.description]
+              .some((value) => String(value || '').toLocaleLowerCase('pt-BR').includes(q))
+          );
+        }
+        if (typeof category === 'string' && category.trim()) {
+          const cat = category.trim().toLocaleLowerCase('pt-BR');
+          targetPlaces = targetPlaces.filter((p) => String(p.category || '').toLocaleLowerCase('pt-BR').includes(cat));
+        }
+      }
+
+      const formatted = targetPlaces.map((place) => {
+        let baseRecord: Record<string, any> = {};
+        if (Array.isArray(fields) && fields.length > 0) {
+          for (const key of fields) {
+            baseRecord[key] = (place as any)[key] ?? null;
+          }
+        } else {
+          baseRecord = { ...place };
+        }
+        if (includeIntelligence && state.web_intelligence && state.web_intelligence[place.id]) {
+          baseRecord.web_intelligence = state.web_intelligence[place.id];
+        }
+        return baseRecord;
+      });
+
+      const safeFilename = (filename || `mapscrape_export_${Date.now()}`).replace(/[^a-zA-Z0-9_\-]/g, '_');
+
+      state.logs.unshift({
+        id: `log_${Date.now()}_export_json`,
+        created_at: new Date().toISOString(),
+        level: 'info',
+        category: 'export',
+        event: 'json_generated',
+        message: `Arquivo JSON exportado com ${targetPlaces.length} registros.`,
+        job_id: jobId || 'bulk_export',
+        metadata: JSON.stringify({ filename: safeFilename, count: targetPlaces.length }),
+        user_id: user?.id,
+      });
+      store.persist();
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.json"`);
+      return res.send(Buffer.from(JSON.stringify(formatted, null, 2), 'utf-8'));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -3641,23 +3744,29 @@ export async function createApp() {
   });
 
   // =========================================================================
-  // 10. SCRAPER & CLOUDFLARE BROWSER SETTINGS (/api/v1/scraper/settings)
+  // 10. SCRAPER & BROWSERLESS SETTINGS (/api/v1/scraper/settings, /api/v1/scraper/test-connection)
   // =========================================================================
 
   app.get('/api/v1/scraper/settings', (_req: Request, res: Response) => {
     try {
       const state = store.getState();
-      const hasRemoteEndpoint = Boolean(process.env.BROWSERLESS_TOKEN || state.settings?.browserWsEndpoint || process.env.BROWSER_WS_ENDPOINT);
-      const engine = process.env.BROWSERLESS_TOKEN ? 'browserless' : hasRemoteEndpoint ? 'remote_chromium' : 'local_puppeteer';
+      const token = state.settings?.browserlessToken || process.env.BROWSERLESS_TOKEN || '';
+      const hasToken = Boolean(token);
+      const engine = hasToken ? 'browserless' : 'local_puppeteer';
+
+      const maskedToken = token
+        ? (token.length > 8 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : '••••••••')
+        : '';
+
       return res.json({
         engine,
-        hasRemoteEndpoint,
-        status: 'ready',
-        description: engine === 'browserless'
-          ? 'Browserless remoto configurado por variável de ambiente'
-          : hasRemoteEndpoint
-            ? 'Chromium remoto configurado'
-            : 'Chromium local disponível somente em desenvolvimento',
+        hasRemoteEndpoint: hasToken,
+        hasToken,
+        tokenMasked: maskedToken,
+        status: hasToken ? 'configured' : 'ready',
+        description: hasToken
+          ? 'Browserless remoto ativo (pronto para raspagens na Vercel e produção)'
+          : 'Chromium local (em desenvolvimento) ou aguardando BROWSERLESS_TOKEN na Vercel',
       });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -3669,28 +3778,57 @@ export async function createApp() {
       const user = resolveUserFromRequest(req);
       if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
       if (user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito a administradores.' });
-      const { browserWsEndpoint, preferredEngine } = req.body;
+
+      const { browserlessToken } = req.body;
       const state = store.getState();
       if (!state.settings) {
         state.settings = {};
       }
-      if (typeof browserWsEndpoint === 'string') {
-        state.settings.browserWsEndpoint = browserWsEndpoint.trim();
-      }
-      if (preferredEngine) {
-        state.settings.preferredEngine = preferredEngine;
+
+      if (typeof browserlessToken === 'string') {
+        state.settings.browserlessToken = browserlessToken.trim();
       }
       store.persist();
+
+      const activeToken = state.settings.browserlessToken || process.env.BROWSERLESS_TOKEN || '';
+
       return res.json({
         success: true,
-        message: 'Configurações de navegador atualizadas.',
+        message: 'Token do Browserless salvo com sucesso.',
         settings: {
-          preferredEngine: state.settings.preferredEngine,
-          hasRemoteEndpoint: Boolean(process.env.BROWSERLESS_TOKEN || state.settings.browserWsEndpoint || process.env.BROWSER_WS_ENDPOINT),
+          engine: activeToken ? 'browserless' : 'local_puppeteer',
+          hasRemoteEndpoint: Boolean(activeToken),
+          hasToken: Boolean(activeToken),
+          tokenMasked: activeToken ? (activeToken.length > 8 ? `${activeToken.slice(0, 4)}••••${activeToken.slice(-4)}` : '••••••••') : '',
         },
       });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/v1/scraper/test-connection', async (req: Request, res: Response) => {
+    try {
+      const user = resolveUserFromRequest(req);
+      if (!user) return res.status(401).json({ error: 'Autenticação necessária.' });
+
+      const { token } = req.body || {};
+      const state = store.getState();
+
+      const effectiveToken = typeof token === 'string' && token.trim()
+        ? token.trim()
+        : (state.settings?.browserlessToken || process.env.BROWSERLESS_TOKEN);
+
+      const testResult = await testRemoteBrowserConnection({
+        token: effectiveToken,
+      });
+
+      return res.json({
+        ...testResult,
+        testedTokenMasked: effectiveToken ? (effectiveToken.length > 8 ? `${effectiveToken.slice(0, 4)}••••${effectiveToken.slice(-4)}` : '••••••••') : undefined,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message || 'Falha ao testar conexão.' });
     }
   });
 

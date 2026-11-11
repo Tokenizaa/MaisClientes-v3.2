@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileDown,
   CheckSquare,
@@ -6,9 +6,11 @@ import {
   ShieldCheck,
   CheckCircle2,
   FileSpreadsheet,
+  FileCode2,
   AlertCircle,
   Download,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 import { PlaceRecord, EXPORTABLE_FIELDS, ScrapeJob } from '../shared/types';
 
@@ -33,6 +35,9 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
   searchQuery,
   selectedCategory,
 }) => {
+  // Format selection: 'csv' | 'json'
+  const [format, setFormat] = useState<'csv' | 'json'>('csv');
+
   // Field selection state (default all selected)
   const [selectedFields, setSelectedFields] = useState<Set<keyof PlaceRecord>>(
     new Set(EXPORTABLE_FIELDS.map((f) => f.key))
@@ -42,6 +47,31 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
   const [scope, setScope] = useState<'selected' | 'current_job' | 'all'>(
     selectedPlaceIds.size > 0 ? 'selected' : selectedJobId ? 'current_job' : 'all'
   );
+
+  // Live database total places count from server coverage
+  const [dbTotalRecords, setDbTotalRecords] = useState<number | null>(null);
+  const [applyResultsFilter, setApplyResultsFilter] = useState(false);
+
+  useEffect(() => {
+    // Fetch total records directly from backend to avoid pagination miscounts
+    const fetchCoverage = async () => {
+      try {
+        const token = window.sessionStorage.getItem('mapscrape_session_token');
+        const res = await fetch('/api/v1/field-coverage', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.totalRecords === 'number') {
+            setDbTotalRecords(data.totalRecords);
+          }
+        }
+      } catch {
+        // Fallback to prop
+      }
+    };
+    void fetchCoverage();
+  }, []);
 
   // Suggested filename
   const defaultFilename = useMemo(() => {
@@ -58,6 +88,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
   const [filename, setFilename] = useState(defaultFilename);
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const toggleField = (key: keyof PlaceRecord) => {
     const next = new Set(selectedFields);
@@ -78,12 +109,15 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
     setSelectedFields(new Set(['name']));
   };
 
+  const effectiveTotal = dbTotalRecords ?? totalPlaces ?? places.length;
+
   const handleExport = async () => {
     setIsExporting(true);
     setExportSuccess(false);
+    setErrorMessage(null);
 
     try {
-      const payload: any = {
+      const payload: Record<string, any> = {
         fields: Array.from(selectedFields),
         filename: filename.trim() || defaultFilename,
       };
@@ -92,14 +126,21 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
         payload.placeIds = Array.from(selectedPlaceIds);
       } else if (scope === 'current_job' && selectedJobId) {
         payload.jobId = selectedJobId;
+        if (applyResultsFilter) {
+          if (searchQuery.trim()) payload.query = searchQuery.trim();
+          if (selectedCategory) payload.category = selectedCategory;
+        }
+      } else if (scope === 'all') {
+        if (applyResultsFilter) {
+          if (searchQuery.trim()) payload.query = searchQuery.trim();
+          if (selectedCategory) payload.category = selectedCategory;
+        }
       }
-      // Keep the active Results filters in the export request so the CSV
-      // contains every matching record, not just the current visible page.
-      if (searchQuery.trim()) payload.query = searchQuery.trim();
-      if (selectedCategory) payload.category = selectedCategory;
 
       const token = window.sessionStorage.getItem('mapscrape_session_token');
-      const response = await fetch('/api/v1/export/csv', {
+      const endpoint = format === 'csv' ? '/api/v1/export/csv' : '/api/v1/export/json';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,7 +151,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        throw new Error(errorText || 'Falha ao gerar arquivo CSV.');
+        throw new Error(errorText || `Falha ao gerar arquivo ${format.toUpperCase()}.`);
       }
 
       // Download trigger
@@ -118,7 +159,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${filename.trim() || defaultFilename}.csv`;
+      a.download = `${filename.trim() || defaultFilename}.${format}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -127,7 +168,9 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
       setExportSuccess(true);
     } catch (err) {
       console.error(err);
-      alert('Erro ao exportar o arquivo CSV.');
+      setErrorMessage(
+        err instanceof Error ? err.message : `Erro ao exportar o arquivo ${format.toUpperCase()}.`
+      );
     } finally {
       setIsExporting(false);
     }
@@ -142,21 +185,86 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
       <div>
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/25 text-blue-400 text-xs font-semibold uppercase tracking-wider mb-3">
           <FileDown className="w-4 h-4" />
-          <span>Exportação de Dados Tabulares</span>
+          <span>Exportação de Dados Tabulares & Inteligência</span>
         </div>
         <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-100 tracking-tight leading-tight">
-          Exportar para CSV
+          Exportar Estabelecimentos
         </h1>
         <p className="mt-3 text-base sm:text-lg text-slate-400 max-w-3xl leading-relaxed">
-          Gere um arquivo CSV profissional com codificação UTF-8 com BOM, delimitador por vírgula e proteção contra fórmulas (CSV Injection). 100% compatível com Excel, LibreOffice Calc e Google Sheets.
+          Gere arquivos profissionais em CSV com UTF-8 BOM (compatível com Excel, Google Sheets e LibreOffice) ou JSON estruturado com dados de inteligência comercial.
         </p>
       </div>
 
       <div className="space-y-6">
-        {/* Step 1: Escopo da Exportação */}
+        {/* Step 1: Formato do Arquivo */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/30 space-y-5 backdrop-blur-sm">
           <h2 className="text-lg sm:text-xl font-bold text-slate-100">
-            1. Escopo da Exportação
+            1. Formato do Arquivo
+          </h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label
+              className={`flex items-start gap-3.5 p-5 border rounded-2xl cursor-pointer transition-all ${
+                format === 'csv'
+                  ? 'border-blue-500/60 bg-blue-500/10 ring-2 ring-blue-500/20'
+                  : 'border-slate-800 hover:border-slate-700 bg-slate-950'
+              }`}
+            >
+              <input
+                type="radio"
+                name="format"
+                value="csv"
+                checked={format === 'csv'}
+                onChange={() => setFormat('csv')}
+                className="mt-1 text-blue-500 focus:ring-blue-500/30 h-4 w-4 bg-slate-900 border-slate-700"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                  <span className="block text-base font-bold text-slate-100">
+                    Planilha CSV (Excel & Google Sheets)
+                  </span>
+                </div>
+                <span className="block text-xs sm:text-sm font-medium text-slate-400">
+                  Codificação UTF-8 com BOM, delimitador por vírgula e proteção contra CSV Injection.
+                </span>
+              </div>
+            </label>
+
+            <label
+              className={`flex items-start gap-3.5 p-5 border rounded-2xl cursor-pointer transition-all ${
+                format === 'json'
+                  ? 'border-blue-500/60 bg-blue-500/10 ring-2 ring-blue-500/20'
+                  : 'border-slate-800 hover:border-slate-700 bg-slate-950'
+              }`}
+            >
+              <input
+                type="radio"
+                name="format"
+                value="json"
+                checked={format === 'json'}
+                onChange={() => setFormat('json')}
+                className="mt-1 text-blue-500 focus:ring-blue-500/30 h-4 w-4 bg-slate-900 border-slate-700"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <FileCode2 className="w-4 h-4 text-blue-400" />
+                  <span className="block text-base font-bold text-slate-100">
+                    JSON Estruturado
+                  </span>
+                </div>
+                <span className="block text-xs sm:text-sm font-medium text-slate-400">
+                  Ideal para desenvolvedores, automações em n8n/Zapier ou importação direta em CRMs.
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Step 2: Escopo da Exportação */}
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/30 space-y-5 backdrop-blur-sm">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-100">
+            2. Escopo da Exportação
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -184,7 +292,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
                   Selecionados Manualmente
                 </span>
                 <span className="block text-xs sm:text-sm font-medium text-slate-400 mt-1">
-                  {selectedPlaceIds.size} de {totalPlaces} selecionados na tabela
+                  {selectedPlaceIds.size} de {effectiveTotal} selecionados na tabela
                 </span>
               </div>
             </label>
@@ -241,22 +349,37 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
                   Base Completa
                 </span>
                 <span className="block text-xs sm:text-sm font-medium text-slate-400 mt-1">
-                  Todos os {totalPlaces.toLocaleString('pt-BR')} registros salvos no SQLite
+                  Todos os {effectiveTotal.toLocaleString('pt-BR')} registros salvos no banco
                 </span>
               </div>
             </label>
           </div>
+
+          {(searchQuery || selectedCategory) && scope !== 'selected' && (
+            <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="apply-filter"
+                checked={applyResultsFilter}
+                onChange={(e) => setApplyResultsFilter(e.target.checked)}
+                className="rounded border-slate-700 text-blue-500 focus:ring-blue-500/30"
+              />
+              <label htmlFor="apply-filter" className="text-xs text-slate-300 cursor-pointer">
+                Aplicar filtros ativos da tela de Resultados (termo: &ldquo;{searchQuery || '—'}&rdquo;, categoria: &ldquo;{selectedCategory || 'todas'}&rdquo;)
+              </label>
+            </div>
+          )}
         </div>
 
-        {/* Step 2: Selecionar Colunas / Campos */}
+        {/* Step 3: Selecionar Colunas / Campos */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/30 space-y-5 backdrop-blur-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-slate-100">
-                2. Selecionar Campos para Exportação
+                3. Selecionar Campos para Exportação
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                {selectedFields.size} de {EXPORTABLE_FIELDS.length} campos selecionados para as colunas do CSV
+                {selectedFields.size} de {EXPORTABLE_FIELDS.length} campos selecionados para {format.toUpperCase()}
               </p>
             </div>
 
@@ -310,26 +433,26 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
           </div>
         </div>
 
-        {/* Step 3: Nome do Arquivo & Botão de Download */}
+        {/* Step 4: Nome do Arquivo & Botão de Download */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/30 space-y-6 backdrop-blur-sm">
           <h2 className="text-lg sm:text-xl font-bold text-slate-100">
-            3. Nome do Arquivo e Download
+            4. Nome do Arquivo e Download
           </h2>
 
           <div className="space-y-2">
-            <label htmlFor="csv-filename" className="block text-sm font-semibold text-slate-300">
-              Nome do arquivo CSV:
+            <label htmlFor="export-filename" className="block text-sm font-semibold text-slate-300">
+              Nome do arquivo ({format.toUpperCase()}):
             </label>
             <div className="flex items-center gap-2">
               <input
-                id="csv-filename"
+                id="export-filename"
                 type="text"
                 value={filename}
                 onChange={(e) => setFilename(e.target.value)}
                 placeholder="Ex: mapscrape_leads_2026"
                 className="flex-1 py-3.5 px-4 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 text-base font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
               />
-              <span className="text-base font-bold text-slate-400 font-mono shrink-0">.csv</span>
+              <span className="text-base font-bold text-slate-400 font-mono shrink-0">.{format}</span>
             </div>
           </div>
 
@@ -337,9 +460,13 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
           <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex items-start gap-3 text-xs sm:text-sm text-slate-300">
             <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="font-bold text-slate-100 block">Padrão Corporativo & Proteção contra Fórmulas</span>
+              <span className="font-bold text-slate-100 block">
+                {format === 'csv' ? 'Padrão Corporativo & Proteção contra Fórmulas' : 'JSON Estruturado & Sanitizado'}
+              </span>
               <p className="text-slate-400 leading-relaxed">
-                O arquivo é gerado com cabeçalho UTF-8 BOM para abertura perfeita no Excel sem desconfigurar acentuação. Células que iniciam com caracteres perigosos (<code className="text-blue-400 font-mono">=</code>, <code className="text-blue-400 font-mono">+</code>, <code className="text-blue-400 font-mono">-</code>, <code className="text-blue-400 font-mono">@</code>) são automaticamente neutralizadas com aspas simples para segurança contra CSV Injection.
+                {format === 'csv'
+                  ? 'O arquivo é gerado com cabeçalho UTF-8 BOM para abertura perfeita no Excel sem desconfigurar acentuação. Células que iniciam com caracteres perigosos (=, +, -, @) são automaticamente neutralizadas com aspas simples para segurança contra CSV Injection.'
+                  : 'O payload JSON inclui os campos selecionados e anexa objetos completos de análise e inteligência comercial para processamento imediato em pipelines de vendas.'}
               </p>
             </div>
           </div>
@@ -347,37 +474,44 @@ export const ExportScreen: React.FC<ExportScreenProps> = ({
           {exportSuccess && (
             <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center gap-3 text-sm font-semibold text-blue-300">
               <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />
-              <span>Download concluído com sucesso! Verifique a pasta de downloads do seu computador.</span>
+              <span>Download concluído com sucesso! Verifique a pasta de downloads do seu dispositivo.</span>
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-3 text-sm font-semibold text-rose-300">
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
           )}
 
           <button
             type="button"
             onClick={handleExport}
-            disabled={isExporting || totalPlaces === 0}
+            disabled={isExporting || (effectiveTotal === 0 && selectedPlaceIds.size === 0)}
             className="w-full py-4 sm:py-5 px-8 bg-blue-600 hover:bg-blue-500 text-white font-bold text-lg sm:text-xl rounded-2xl shadow-lg shadow-blue-950/50 hover:shadow-blue-900/60 transition-all flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
           >
             {isExporting ? (
               <>
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Gerando arquivo CSV...</span>
+                <span>Gerando arquivo {format.toUpperCase()}...</span>
               </>
             ) : (
               <>
                 <Download className="w-6 h-6" />
-                <span>Baixar Arquivo CSV Agora</span>
+                <span>Baixar Arquivo {format.toUpperCase()} Agora</span>
               </>
             )}
           </button>
         </div>
 
-        {/* Step 4: Prévia das Primeiras Linhas */}
+        {/* Step 5: Prévia das Primeiras Linhas */}
         {previewRecords.length > 0 && (
           <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/30 space-y-4 backdrop-blur-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
                 <FileSpreadsheet className="w-5 h-5 text-blue-400" />
-                <span>Prévia das Primeiras Linhas da Planilha</span>
+                <span>Prévia dos Dados Selecionados</span>
               </h2>
               <span className="text-xs text-slate-400 font-mono">3 amostras</span>
             </div>
