@@ -34,7 +34,7 @@ interface ScrapeJob {
   completed_at?: string;
   project_id?: string;
   category_id?: string;
-  source?: 'remote' | 'browser_extension';
+  source?: 'remote' | 'browser_extension' | 'browser_client';
 }
 
 interface PlaceRecord {
@@ -585,12 +585,12 @@ export default {
       }
     }
 
-    // Create job - dispara Durable Object para execução real
+    // Create job - usa a origem solicitada (navegador do usuário ou engine remoto).
     if (path === '/api/v1/jobs' && method === 'POST') {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
       try {
-        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string; source?: 'remote' | 'browser_extension' };
+        const body = (await readBody(request)) as { segment?: string; location?: string; limit?: number; projectName?: string; categoryName?: string; source?: 'remote' | 'browser_extension' | 'browser_client' };
         if (!body.segment || !body.location) return error('Segmento e Localização são obrigatórios.', 400);
 
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -637,20 +637,19 @@ export default {
         });
         if (dbError) return error(dbError.message, 500);
 
-        // Se a origem é a extensão do navegador, não inicia scraping remoto.
-        // A extensão executa a coleta no navegador do usuário e envia via
-        // POST /api/v1/scrape/collect. O frontend faz polling do status.
-        if (job.source === 'browser_extension') {
+        // Coletas executadas no navegador do usuário não iniciam sessão remota.
+        // O navegador envia os resultados via POST /api/v1/scrape/collect.
+        if (job.source === 'browser_extension' || job.source === 'browser_client') {
           await db.from('scrape_jobs').update({
             status: 'running',
-            status_message: 'Aguardando inicialização da extensão...',
-            current_step: 'Pronto para coleta via extensão.',
+            status_message: 'Aguardando coleta no navegador do usuário...',
+            current_step: 'Pronto para receber resultados do navegador.', 
           }).eq('id', job.id);
           return json({
             jobId: job.id,
             id: job.id,
             status: 'running',
-            message: 'Job criado. Inicie a coleta pela extensão do navegador.',
+            message: 'Job criado. Inicie a coleta no navegador do usuário.',
           }, 201);
         }
 
@@ -772,6 +771,29 @@ export default {
       const auth = requireAuth(request, env);
       if (auth instanceof Response) return auth;
       try {
+        const db = getDb(env);
+        const { data: job, error: jobError } = await db
+          .from('scrape_jobs')
+          .select('id,source')
+          .eq('id', stopMatch[1])
+          .eq('user_id', auth.user.id)
+          .maybeSingle();
+        if (jobError) return error(jobError.message, 500);
+        if (!job) return error('Coleta não encontrada.', 404);
+
+        if (job.source === 'browser_extension' || job.source === 'browser_client') {
+          const stoppedAt = new Date().toISOString();
+          const { error: updateError } = await db.from('scrape_jobs').update({
+            status: 'stopped',
+            status_message: 'Coleta interrompida pelo usuário.',
+            current_step: 'Interrompida',
+            heartbeat_at: stoppedAt,
+            completed_at: stoppedAt,
+          }).eq('id', job.id).eq('user_id', auth.user.id);
+          if (updateError) return error(updateError.message, 500);
+          return json({ success: true });
+        }
+
         const id = env.SESSION_PROXY.idFromName(stopMatch[1]);
         const stub = env.SESSION_PROXY.get(id);
         await stub.fetch('https://scraper.internal/stop', { method: 'POST' });
@@ -867,10 +889,27 @@ export default {
 
     // Coleta client-side: recebe lugares coletados pelo navegador do usuário
     if (path === '/api/v1/scrape/collect' && method === 'POST') {
-      const auth = requireAuth(request, env);
-      if (auth instanceof Response) return auth;
       try {
-        const body = (await readBody(request)) as {
+        // Bookmarklets fazem POST simples (sem preflight CORS) usando form-urlencoded.
+        // A extensão antiga continua podendo enviar JSON com Authorization.
+        let body: any;
+        let authRequest = request;
+        const contentType = request.headers.get('content-type') || '';
+        if (contentType.includes('application/x-www-form-urlencoded')) {
+          const requestForAuth = request.clone();
+          const form = await request.formData();
+          const token = String(form.get('token') || '');
+          const payload = String(form.get('payload') || '{}');
+          const headers = new Headers(request.headers);
+          if (token) headers.set('Authorization', `Bearer ${token}`);
+          authRequest = new Request(requestForAuth, { headers });
+          body = JSON.parse(payload);
+        } else {
+          body = await readBody(request);
+        }
+        const auth = requireAuth(authRequest, env);
+        if (auth instanceof Response) return auth;
+        body = body as {
           jobId?: string;
           segment?: string;
           location?: string;
@@ -889,12 +928,33 @@ export default {
             maps_url?: string;
           }>;
         };
-        if (!body.jobId) return error('jobId é obrigatório.', 400);
-        if (!body.places || !Array.isArray(body.places) || body.places.length === 0) {
-          return error('Nenhum lugar para coletar.', 400);
-        }
+        if (!Array.isArray(body.places)) return error('places deve ser uma lista.', 400);
 
         const db = getDb(env);
+        const jobQuery = db
+          .from('scrape_jobs')
+          .select('id,status,source,segment,location,limit_requested')
+          .eq('user_id', auth.user.id);
+        const { data: job, error: jobError } = body.jobId
+          ? await jobQuery.eq('id', body.jobId).maybeSingle()
+          : await jobQuery
+              .eq('source', 'browser_client')
+              .eq('status', 'running')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+        if (jobError) return error(jobError.message, 500);
+        if (!job) return error('Não existe uma coleta ativa para este usuário.', 404);
+        if (job.source !== 'browser_extension' && job.source !== 'browser_client') {
+          return error('Esta coleta não aceita resultados enviados pelo navegador.', 409);
+        }
+        if (job.status !== 'running') return error('Esta coleta não está mais ativa.', 409);
+
+        body.jobId = job.id;
+        body.segment = job.segment;
+        body.location = job.location;
+        body.places = body.places.slice(0, Math.max(0, Number(job.limit_requested) || 100));
+
         const now = new Date().toISOString();
         const saved: any[] = [];
 
@@ -907,13 +967,13 @@ export default {
             segment: body.segment || '',
             name: place.name || 'Estabelecimento',
             category: place.category || body.segment || '',
-            address: place.address || '',
+            address: place.address || body.location || '',
             phone: place.phone || '',
             website: place.website || '',
             rating: place.rating || '',
             review_count: place.review_count || '',
-            city: place.city || '',
-            state: place.state || '',
+            city: place.city || String(body.location || '').split(',')[0].trim(),
+            state: place.state || (String(body.location || '').match(/(?:,\s*|\s+)([A-Z]{2})$/i) || [])[1] || '',
             collected_at: now,
             source_url: place.source_url || '',
             maps_url: place.maps_url || '',
@@ -924,10 +984,15 @@ export default {
 
         // Atualizar job com total coletado
         await db.from('scrape_jobs').update({
+          total_found: body.places.length,
           total_collected: saved.length,
-          status_message: `Coleta client-side concluída: ${saved.length} estabelecimento(s) salvo(s).`,
+          total_duplicates: Math.max(0, body.places.length - saved.length),
+          status: 'completed',
+          status_message: `Coleta no navegador concluída: ${saved.length} estabelecimento(s) salvo(s).`,
           current_step: 'Concluído',
-        }).eq('id', body.jobId);
+          heartbeat_at: now,
+          completed_at: now,
+        }).eq('id', body.jobId).eq('user_id', auth.user.id);
 
         return json({
           jobId: body.jobId,
