@@ -556,7 +556,7 @@ export default function App() {
   if (!hasApiKey) return <AuthScreen onAuthenticated={handleAuthenticated} />;
 
   return (
-    <div className="app-shell min-h-screen bg-transparent text-slate-100 flex flex-col font-sans antialiased selection:bg-blue-600/30 selection:text-blue-200">
+    <div className="app-shell min-h-screen bg-transparent text-slate-100 flex flex-col lg:grid lg:grid-cols-[18rem_minmax(0,1fr)] font-sans antialiased selection:bg-blue-600/30 selection:text-blue-200">
       <AmbientBackground />
       <HolographicGridOverlay />
       {/* Sidebar Navigation */}
@@ -578,7 +578,7 @@ export default function App() {
       />
 
       {/* Main Content Area with Desktop Sidebar Offset */}
-      <div className="lg:pl-72 flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 lg:col-start-2 lg:row-start-1">
         {/* Floating in-app notification banner */}
         {appNotification && (
           <div className="px-4 sm:px-8 pt-4">
