@@ -6,7 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
-!.env.example
 
 # Local runtime data and user/lead records
 .data/
