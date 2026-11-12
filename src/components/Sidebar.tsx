@@ -152,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Panel - Deep Dark Navy Palette */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-[#070e20] border-r border-[#152347] flex flex-col transition-transform duration-200 ease-out lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-[#070e20] border-r border-[#152347] flex flex-col transition-transform duration-200 ease-out lg:sticky lg:top-0 lg:bottom-auto lg:col-start-1 lg:row-start-1 lg:h-screen lg:translate-x-0 ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
