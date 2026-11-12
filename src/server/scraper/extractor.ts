@@ -57,12 +57,40 @@ export async function extractPlaceDetails(page: Page, jobId: string, targetUrl: 
 
     // Ignore overlay headings such as "Horários" and "Avaliações".
     // The business title must be a real h1 outside dialogs.
-    const genericHeadings = /^(horários?|opening hours|reviews?|avaliações?|sobre|about|fotos|photos|directions|como chegar|menu)$/i;
+    const genericHeadings = /^(horários?|opening hours|reviews?|avaliações?|sobre|about|fotos|photos|directions|como chegar|menu|google maps|maps)$/i;
+    const normalizeTitle = (value: string): string => value
+      .replace(/\s+/g, ' ')
+      .replace(/\s*[-|·]\s*google maps\s*$/i, '')
+      .replace(/^google maps\s*[-|·]\s*/i, '')
+      .trim();
+    const isBusinessTitle = (value: string): boolean =>
+      !!value && value.length >= 2 && value.length <= 180 && !genericHeadings.test(value)
+      && !/^(pesquisa|search results|resultados da pesquisa)$/i.test(value);
     const titleCandidates = Array.from(document.querySelectorAll('h1'))
       .filter((node) => !node.closest('[role="dialog"],[aria-modal="true"]'))
-      .map((node) => text(node).replace(/\s+/g, ' ').trim())
-      .filter((value) => value && value.length <= 180 && !genericHeadings.test(value));
-    const name = titleCandidates[0] || '';
+      .map((node) => normalizeTitle(text(node)))
+      .filter(isBusinessTitle);
+    // Google Maps sometimes renders the place sheet without an h1 (or places
+    // the heading inside a transient panel). Prefer semantic metadata, then
+    // the document title, and finally the /maps/place/ URL slug.
+    const metadataTitle = normalizeTitle(
+      attr(document.querySelector('meta[property="og:title"]'), 'content')
+      || attr(document.querySelector('meta[name="twitter:title"]'), 'content')
+    );
+    const semanticTitle = normalizeTitle(
+      text(document.querySelector('[data-item-id="title"]'))
+      || attr(document.querySelector('[data-item-id="title"]'), 'aria-label')
+    );
+    const documentTitle = normalizeTitle(document.title || '');
+    const placeSlug = (() => {
+      try {
+        const match = window.location.pathname.match(/\/maps\/place\/([^/]+)/i);
+        return match ? normalizeTitle(decodeURIComponent(match[1]).replace(/\\+/g, ' ')) : '';
+      } catch { return ''; }
+    })();
+    const name = titleCandidates[0]
+      || [semanticTitle, metadataTitle, documentTitle, placeSlug].find(isBusinessTitle)
+      || '';
     const category = firstText(selectors.category);
 
     // Maps commonly puts rating and review count together in one accessible label.
