@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Phone,
@@ -388,9 +389,10 @@ export const LeadDetailsModal: React.FC<Props> = ({
   const score = intel?.scores?.overall_score ?? place.web_intelligence_score;
   const qualificationTier = intel?.scores?.qualification_tier;
 
-  return (
+  return createPortal((
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4 lg:p-6"
+      className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4 lg:p-6"
+      style={{ zIndex: 2147483647, isolation: "isolate" }}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -1627,5 +1629,5 @@ export const LeadDetailsModal: React.FC<Props> = ({
         </div>
       </section>
     </div>
-  );
+  ), document.body);
 };
