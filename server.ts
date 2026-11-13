@@ -1663,16 +1663,28 @@ async function executeScrapeJob(
   let browserReconnectAttempts = 0;
   const MAX_BROWSER_RECONNECTS = 3;
 
+  function trackBrowserConnection(instance: Browser): Browser {
+    browser = instance;
+    instance.once('disconnected', () => {
+      if (browser === instance) {
+        browser = null;
+        console.warn('[Scraper:Browserless] Sessão Chromium desconectada; a próxima operação tentará recuperar a sessão.');
+      }
+    });
+    return instance;
+  }
+
   async function ensureBrowser(): Promise<Browser> {
-    if (browser) return browser;
+    if (browser && browser.connected) return browser;
+    browser = null;
     if (browserReconnectAttempts >= MAX_BROWSER_RECONNECTS) {
       throw new Error('Orçamento de reconexão do navegador esgotado.');
     }
-    browser = await connectScraperBrowser({
+    const connected = await connectScraperBrowser({
       token: state.settings?.browserlessToken,
     });
     browserReconnectAttempts += 1;
-    return browser;
+    return trackBrowserConnection(connected);
   }
 
   try {
@@ -1687,21 +1699,27 @@ async function executeScrapeJob(
     }
     await audit('job_started', 'info', 'Coleta iniciada.', { segment, location });
     await updateProgress('Conectando ao navegador Browserless na nuvem...');
-    browser = await connectScraperBrowser({
+    trackBrowserConnection(await connectScraperBrowser({
       token: state.settings?.browserlessToken,
-    });
-    let page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 900 });
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' });
+    }));
 
     const searchQuery = `${segment} ${location}`.trim();
+    let page: Page;
+    const openSearchPage = async (): Promise<void> => {
+      const activeBrowser = browser ?? await ensureBrowser();
+      page = await activeBrowser.newPage();
+      await page.setViewport({ width: 1280, height: 900 });
+      await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' });
+      await page.goto('https://www.google.com/maps/search/' + encodeURIComponent(searchQuery), {
+        waitUntil: 'domcontentloaded', timeout: 30000,
+      });
+      await page.waitForSelector('div[role="feed"], a[href*="/maps/place/"]', { timeout: 15000 }).catch((error: any) => {
+        if (error?.name !== 'TimeoutError') throw error;
+      });
+    };
+
     await updateProgress('Abrindo pesquisa no Google Maps...');
-    await page.goto('https://www.google.com/maps/search/' + encodeURIComponent(searchQuery), {
-      waitUntil: 'domcontentloaded', timeout: 30000,
-    });
-    await page.waitForSelector('div[role="feed"], a[href*="/maps/place/"]', { timeout: 15000 }).catch((error: any) => {
-      if (error?.name !== 'TimeoutError') throw error;
-    });
+    await openSearchPage();
 
     let feedExhausted = false;
     let previousCount = 0;
@@ -1771,11 +1789,8 @@ async function executeScrapeJob(
           browser = null;
           try {
             await ensureBrowser();
-            page = await browser!.newPage();
-            await page.setViewport({ width: 1280, height: 900 });
-            await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' });
-            await page.goto('https://www.google.com/maps/search/' + encodeURIComponent(searchQuery), { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await audit('feed_read_reconnected', 'info', 'Navegador reconectado após falha na leitura do feed; pesquisa reiniciada.', { segment, location });
+            await openSearchPage();
+            await audit('feed_read_reconnected', 'info', 'Navegador reconectado após falha na leitura do feed; pesquisa reaberta. URLs já processadas nesta execução serão ignoradas.', { segment, location, reconnect_attempt: browserReconnectAttempts });
             continue;
           } catch (reconnectError) {
             const reconnectMessage = reconnectError instanceof Error ? reconnectError.message : String(reconnectError ?? 'Erro desconhecido');
@@ -2057,7 +2072,7 @@ async function executeScrapeJob(
     job.status = job.total_collected > 0 ? 'partial' : 'failed';
     job.completion_reason = 'fatal_error';
     job.status_message = browserFailure
-      ? 'Conexão do navegador encerrada. A coleta foi finalizada sem retomada automática.'
+      ? 'Conexão do navegador encerrada. O progresso confirmado foi preservado, mas esta execução não conseguiu recuperar a sessão; retome os itens pendentes em uma nova tentativa.'
       : `Falha na coleta: ${message}`;
     job.current_step = 'Execução finalizada com falha';
     job.total_errors += 1;
