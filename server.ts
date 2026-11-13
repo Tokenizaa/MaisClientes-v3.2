@@ -1938,69 +1938,84 @@ async function executeScrapeJob(
       }
 
       if (job.total_collected >= limit || cancelled || pauseReason) break;
-      const beforeScroll = await page.evaluate((selector) => {
-        const feed = document.querySelector(selector) as HTMLElement | null;
-        const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
-        if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: 'instant' as ScrollBehavior });
-        else window.scrollBy(0, 1100);
-        return {
-          scrollHeight: feed?.scrollHeight || document.documentElement.scrollHeight,
-          scrollTop: feed?.scrollTop || window.scrollY,
-          linkCount: links.length,
-          lastHref: links.at(-1)?.href || '',
-        };
-      }, feedSelector);
-
-      // Google Maps uses infinite scrolling. Wait for actual feed growth or a
-      // changed tail result; a fixed sleep alone can miss delayed pagination.
-      await page.waitForFunction((selector, previous) => {
-        const feed = document.querySelector(selector) as HTMLElement | null;
-        const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
-        const visibleText = (document.body?.innerText || '').toLocaleLowerCase();
-        const feedText = (feed?.innerText || '').toLocaleLowerCase();
-        const combinedText = visibleText + '\\n' + feedText;
-        const terminalNotice = [
-          'você chegou ao final da lista',
-          'você chegou ao fim da lista',
-          "you've reached the end of the list",
-          'you have reached the end of the list',
-          'tráfego incomum',
-          'unusual traffic',
-          'nossos sistemas detectaram tráfego',
-          'our systems have detected unusual traffic',
-          'not a robot',
-          'não é um robô',
-        ].some((phrase) => combinedText.includes(phrase));
-        const height = feed?.scrollHeight || document.documentElement.scrollHeight;
-        const tail = links.at(-1)?.href || '';
-        return terminalNotice || height > previous.scrollHeight || links.length > previous.linkCount || (tail !== '' && tail !== previous.lastHref);
-      }, { timeout: 7000 }, feedSelector, beforeScroll).catch((error: any) => {
-        if (error?.name !== 'TimeoutError') throw error;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const afterScroll = await page.evaluate((selector) => {
-        const feed = document.querySelector(selector) as HTMLElement | null;
-        const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
-        return {
-          scrollHeight: feed?.scrollHeight || document.documentElement.scrollHeight,
-          scrollTop: feed?.scrollTop || window.scrollY,
-          linkCount: links.length,
-          lastHref: links.at(-1)?.href || '',
-        };
-      }, feedSelector);
-      const paginationAdvanced = afterScroll.scrollHeight > beforeScroll.scrollHeight
-        || afterScroll.linkCount > beforeScroll.linkCount
-        || (afterScroll.lastHref !== '' && afterScroll.lastHref !== beforeScroll.lastHref);
-      if (paginationAdvanced) {
-        await audit('feed_pagination_advanced', 'debug', 'Rolagem infinita carregou novos resultados no feed.', {
-          before: beforeScroll, after: afterScroll,
+      try {
+        const beforeScroll = await page.evaluate((selector) => {
+          const feed = document.querySelector(selector) as HTMLElement | null;
+          const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
+          if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: 'instant' as ScrollBehavior });
+          else window.scrollBy(0, 1100);
+          return {
+            scrollHeight: feed?.scrollHeight || document.documentElement.scrollHeight,
+            scrollTop: feed?.scrollTop || window.scrollY,
+            linkCount: links.length,
+            lastHref: links.at(-1)?.href || '',
+          };
+        }, feedSelector);
+  
+        // Google Maps uses infinite scrolling. Wait for actual feed growth or a
+        // changed tail result; a fixed sleep alone can miss delayed pagination.
+        await page.waitForFunction((selector, previous) => {
+          const feed = document.querySelector(selector) as HTMLElement | null;
+          const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
+          const visibleText = (document.body?.innerText || '').toLocaleLowerCase();
+          const feedText = (feed?.innerText || '').toLocaleLowerCase();
+          const combinedText = visibleText + '\\n' + feedText;
+          const terminalNotice = [
+            'você chegou ao final da lista',
+            'você chegou ao fim da lista',
+            "you've reached the end of the list",
+            'you have reached the end of the list',
+            'tráfego incomum',
+            'unusual traffic',
+            'nossos sistemas detectaram tráfego',
+            'our systems have detected unusual traffic',
+            'not a robot',
+            'não é um robô',
+          ].some((phrase) => combinedText.includes(phrase));
+          const height = feed?.scrollHeight || document.documentElement.scrollHeight;
+          const tail = links.at(-1)?.href || '';
+          return terminalNotice || height > previous.scrollHeight || links.length > previous.linkCount || (tail !== '' && tail !== previous.lastHref);
+        }, { timeout: 7000 }, feedSelector, beforeScroll).catch((error: any) => {
+          if (error?.name !== 'TimeoutError') throw error;
         });
-      } else {
-        await audit('feed_pagination_waiting', 'debug', 'Rolagem executada; aguardando novos resultados ou confirmação explícita do fim do feed.', {
-          before: beforeScroll, after: afterScroll,
+        await new Promise((resolve) => setTimeout(resolve, 500));
+  
+        const afterScroll = await page.evaluate((selector) => {
+          const feed = document.querySelector(selector) as HTMLElement | null;
+          const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]')) as HTMLAnchorElement[];
+          return {
+            scrollHeight: feed?.scrollHeight || document.documentElement.scrollHeight,
+            scrollTop: feed?.scrollTop || window.scrollY,
+            linkCount: links.length,
+            lastHref: links.at(-1)?.href || '',
+          };
+        }, feedSelector);
+        const paginationAdvanced = afterScroll.scrollHeight > beforeScroll.scrollHeight
+          || afterScroll.linkCount > beforeScroll.linkCount
+          || (afterScroll.lastHref !== '' && afterScroll.lastHref !== beforeScroll.lastHref);
+        if (paginationAdvanced) {
+          await audit('feed_pagination_advanced', 'debug', 'Rolagem infinita carregou novos resultados no feed.', {
+            before: beforeScroll, after: afterScroll,
+          });
+        } else {
+          await audit('feed_pagination_waiting', 'debug', 'Rolagem executada; aguardando novos resultados ou confirmação explícita do fim do feed.', {
+            before: beforeScroll, after: afterScroll,
+          });
+        }
+        } catch (error) {
+        const message = error instanceof Error ? error.message : String(error ?? 'Erro desconhecido');
+        const browserUnavailable = /connection closed|target closed|detached frame|session closed|websocket|browser.*disconnect|protocol error|cannot find context|execution context.*destroyed/i.test(message);
+        if (!browserUnavailable || browserReconnectAttempts >= MAX_BROWSER_RECONNECTS) throw error;
+        browser = null;
+        await ensureBrowser();
+        await openSearchPage();
+        await audit('feed_scroll_reconnected', 'warn', 'Sessão do navegador recuperada durante a paginação; feed reaberto e itens já processados serão ignorados.', {
+          reconnect_attempt: browserReconnectAttempts,
+          error_message: message.slice(0, 300),
         });
+        continue;
       }
+
       const currentCount = seenThisRun.size;
       stagnantRounds = currentCount === previousCount ? stagnantRounds + 1 : 0;
       previousCount = currentCount;
