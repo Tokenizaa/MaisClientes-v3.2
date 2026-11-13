@@ -21,7 +21,8 @@ Uma nova solicitação sempre começa do início do feed. Os registros já salvo
 - **Falha isolada de extração:** record_scrape_place_error registra a falha e os contadores atomicamente. O worker descarta aquela ficha e segue para a próxima.
 - **Falha ao consultar duplicidade, registrar erro ou persistir:** encerra o job. Não continua coletando sem garantia de gravação.
 - **Falha de lease:** encerra a execução para impedir gravações por um worker que perdeu a propriedade do job.
-- **Desconexão do Chromium, frame ou página:** encerra a coleta. Não reconstrói navegador, feed ou posição.
+- **Desconexão recuperável do Chromium, frame ou página:** o worker invalida a referência da sessão, abre uma nova conexão Browserless, recria a página e reabre a pesquisa. URLs já processadas na execução atual são ignoradas pelo conjunto `seenThisRun`, e a deduplicação transacional continua protegendo a persistência. Há até três reconexões por execução.
+- **Falha após esgotar as reconexões ou encerramento da função serverless:** a execução é marcada como parcial/falha e os registros já persistidos permanecem seguros. A retomada automática após término do processo ainda não está implementada; depende de checkpoint durável do feed/candidato e de um worker independente da requisição Vercel.
 - **Timeout esperando novos resultados:** é tratado como ausência momentânea de avanço, não como desconexão. O worker tenta avançar novamente; depois de oito ciclos sem novos resultados, finaliza como parcial se não houver confirmação explícita de fim.
 
 Erros reais de comunicação com a página não são convertidos em listas vazias ou em falsos sinais de fim do feed.
